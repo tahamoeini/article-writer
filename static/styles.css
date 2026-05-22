@@ -152,6 +152,20 @@ button:hover {
   gap: 8px;
 }
 
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inline-actions button {
+  padding: 8px 12px;
+}
+
+#pdf-file-list {
+  min-height: 180px;
+}
+
 .task-list {
   display: grid;
   gap: 10px;

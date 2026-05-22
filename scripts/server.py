@@ -41,6 +41,8 @@ class ResearchQuery(BaseModel):
 
 class IngestRequest(BaseModel):
     force: bool = False
+    selected_files: list[str] | None = None
+    max_workers: int = Field(default=1, ge=1, le=32)
     settings_overrides: dict[str, str] | None = None
 
 
@@ -188,13 +190,23 @@ def _serialize_citations(source_nodes: list[Any]) -> list[dict[str, Any]]:
     return citations
 
 
-def _run_ingest(force: bool, settings_overrides: Mapping[str, str] | None = None):
+def _run_ingest(
+    force: bool,
+    settings_overrides: Mapping[str, str] | None = None,
+    selected_files: list[str] | None = None,
+    max_workers: int = 1,
+):
     try:
         from scripts.ingest import process_corpus
     except ModuleNotFoundError:
         from ingest import process_corpus
 
-    return process_corpus(force=force, settings_overrides=settings_overrides)
+    return process_corpus(
+        force=force,
+        settings_overrides=settings_overrides,
+        selected_files=selected_files,
+        max_workers=max_workers,
+    )
 
 
 def _run_build_index(recreate: bool, settings_overrides: Mapping[str, str] | None = None):
@@ -401,6 +413,13 @@ async def list_models(ollama_base_url: str | None = Query(default=None)):
     return {"models": models}
 
 
+@app.get("/v1/corpus/pdfs")
+async def list_corpus_pdfs():
+    settings = RuntimeSettings.from_env()
+    settings.ensure_runtime_dirs()
+    return {"files": sorted(pdf_path.name for pdf_path in settings.pdf_dir.glob("*.pdf"))}
+
+
 @app.get("/v1/tasks")
 async def list_tasks():
     return {"tasks": task_manager.list_tasks()}
@@ -417,11 +436,20 @@ async def get_task(task_id: str):
 @app.post("/v1/tasks/ingest")
 async def start_ingest(payload: IngestRequest):
     overrides = _normalize_overrides(payload.settings_overrides)
+    selected_files = payload.selected_files or None
     task = task_manager.create_task(
         "ingest",
-        {"force": payload.force, "settings_overrides": overrides},
+        {
+            "force": payload.force,
+            "selected_files": selected_files,
+            "selected_count": len(selected_files or []),
+            "max_workers": payload.max_workers,
+            "settings_overrides": overrides,
+        },
         _run_ingest,
         force=payload.force,
+        selected_files=selected_files,
+        max_workers=payload.max_workers,
         settings_overrides=overrides or None,
     )
     return task.to_payload()

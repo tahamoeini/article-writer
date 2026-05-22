@@ -1,4 +1,5 @@
 import argparse
+import concurrent.futures
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -21,6 +22,16 @@ except ImportError:
 
 MIN_BLOCK_LENGTH = 40
 TEI_NAMESPACE = {"tei": "http://www.tei-c.org/ns/1.0"}
+MAX_WORKERS = 32
+
+
+def empty_ingest_summary() -> dict[str, object]:
+    return {
+        "processed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "failures": [],
+    }
 
 
 def normalize_text(value: str) -> str:
@@ -157,46 +168,115 @@ def process_pdf(pdf_path: Path, settings: RuntimeSettings) -> Path:
     return output_path
 
 
+def resolve_pdf_files(settings: RuntimeSettings, selected_files: list[str] | None = None) -> list[Path]:
+    if not selected_files:
+        return sorted(settings.pdf_dir.glob("*.pdf"))
+
+    pdf_files = []
+    for filename in selected_files:
+        pdf_path = Path(filename)
+        if pdf_path.name != filename or pdf_path.suffix.lower() != ".pdf":
+            raise ValueError(f"Invalid PDF selection: {filename}")
+
+        resolved_path = (settings.pdf_dir / filename).resolve()
+        try:
+            resolved_path.relative_to(settings.pdf_dir.resolve())
+        except ValueError as exc:
+            raise ValueError(f"Invalid PDF selection: {filename}") from exc
+
+        if not resolved_path.exists() or not resolved_path.is_file():
+            raise ValueError(f"Selected PDF was not found: {filename}")
+
+        pdf_files.append(resolved_path)
+
+    return sorted(dict.fromkeys(pdf_files))
+
+
+def process_pdf_safely(pdf_path: Path, settings: RuntimeSettings) -> dict[str, str]:
+    process_pdf(pdf_path, settings)
+    return {"filename": pdf_path.name, "status": "processed"}
+
+
 def process_corpus(
     force: bool = False,
     settings_overrides: Mapping[str, str] | None = None,
-) -> tuple[int, int]:
+    selected_files: list[str] | None = None,
+    max_workers: int = 1,
+) -> dict[str, object]:
     settings = RuntimeSettings.from_env(settings_overrides)
     settings.ensure_runtime_dirs()
+    max_workers = max(1, min(max_workers, MAX_WORKERS))
 
-    pdf_files = sorted(settings.pdf_dir.glob("*.pdf"))
+    pdf_files = resolve_pdf_files(settings, selected_files)
     if not pdf_files:
         print(f"No PDF files found in {settings.pdf_dir}.")
-        return 0, 0
+        return empty_ingest_summary()
 
-    processed_count = 0
-    skipped_count = 0
-    print(f"Starting academic document preprocessing for {len(pdf_files)} PDF files...")
+    summary = empty_ingest_summary()
+    scheduled_files = []
+    print(
+        "Starting academic document preprocessing for "
+        f"{len(pdf_files)} PDF files with {max_workers} worker(s)..."
+    )
 
     for pdf_path in pdf_files:
         output_path = settings.processed_dir / f"{pdf_path.stem}.json"
         if output_path.exists() and not force:
-            skipped_count += 1
+            summary["skipped"] += 1
             print(f"Skipping existing file: {pdf_path.name}")
             continue
 
-        print(f"Extracting structural text: {pdf_path.name}")
-        process_pdf(pdf_path, settings)
-        processed_count += 1
+        scheduled_files.append(pdf_path)
+
+    if max_workers == 1:
+        for pdf_path in scheduled_files:
+            try:
+                print(f"Extracting structural text: {pdf_path.name}")
+                process_pdf_safely(pdf_path, settings)
+                summary["processed"] += 1
+                print(f"Completed extraction: {pdf_path.name}")
+            except Exception as exc:
+                summary["failed"] += 1
+                summary["failures"].append({"filename": pdf_path.name, "error": str(exc)})
+                print(f"Failed extraction: {pdf_path.name}: {exc}")
+    else:
+        for pdf_path in scheduled_files:
+            print(f"Queueing extraction: {pdf_path.name}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(process_pdf_safely, pdf_path, settings): pdf_path for pdf_path in scheduled_files
+            }
+            for future in concurrent.futures.as_completed(futures):
+                pdf_path = futures[future]
+                try:
+                    future.result()
+                    summary["processed"] += 1
+                    print(f"Completed extraction: {pdf_path.name}")
+                except Exception as exc:
+                    summary["failed"] += 1
+                    summary["failures"].append({"filename": pdf_path.name, "error": str(exc)})
+                    print(f"Failed extraction: {pdf_path.name}: {exc}")
 
     print(
         "Pre-processing completed. "
-        f"processed={processed_count}, skipped={skipped_count}, output_dir={settings.processed_dir}"
+        f"processed={summary['processed']}, skipped={summary['skipped']}, failed={summary['failed']}, "
+        f"output_dir={settings.processed_dir}"
     )
-    return processed_count, skipped_count
+    return summary
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Extract structured text and metadata from PDFs.")
     parser.add_argument("--force", action="store_true", help="Rebuild JSON output for files that already exist.")
+    parser.add_argument("--workers", type=int, default=1, help=f"Number of PDF files to process in parallel, up to {MAX_WORKERS}.")
+    parser.add_argument("--file", action="append", dest="selected_files", help="PDF filename from corpus/pdfs to ingest. Repeat for multiple files.")
     return parser
 
 
 if __name__ == "__main__":
     arguments = build_parser().parse_args()
-    process_corpus(force=arguments.force)
+    process_corpus(
+        force=arguments.force,
+        selected_files=arguments.selected_files,
+        max_workers=arguments.workers,
+    )

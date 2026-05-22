@@ -87,6 +87,14 @@ To rebuild all processed files:
 
     python scripts/ingest.py --force
 
+To process multiple PDFs in parallel:
+
+    python scripts/ingest.py --workers 4
+
+To ingest only selected files already present in corpus/pdfs:
+
+    python scripts/ingest.py --file first.pdf --file second.pdf --workers 4
+
 ### 3. Build the index
 
 After processing is complete, build the retrieval index:
@@ -118,6 +126,7 @@ Then open:
 The web UI lets you:
 
 - run ingestion, index-building, and synthesis jobs from the browser
+- select existing PDFs from corpus/pdfs and configure parallel ingestion workers
 - inspect live task logs and final task results
 - load Ollama models and switch chat / embedding models
 - run corpus-grounded research queries
@@ -153,9 +162,20 @@ Task endpoints exposed for the UI:
 - POST /v1/tasks/synthesis
 - GET /v1/tasks
 - GET /v1/tasks/{task_id}
+- GET /v1/corpus/pdfs
 - GET /v1/models
 - POST /v1/chat
 - GET /v1/settings/defaults
+
+Example ingestion task body:
+
+    {
+      "force": false,
+      "selected_files": ["first.pdf", "second.pdf"],
+      "max_workers": 4
+    }
+
+If selected_files is empty or omitted, ingestion scans all PDFs in corpus/pdfs. Per-file failures are logged and reported without stopping the rest of the batch.
 
 ### 6. Run a broader synthesis query from the CLI
 

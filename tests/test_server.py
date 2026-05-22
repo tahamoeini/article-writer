@@ -1,11 +1,14 @@
 import threading
 import time
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from scripts import ingest
 from scripts import server
 
 MAX_TASK_WAIT_ITERATIONS = 40
@@ -81,17 +84,44 @@ class ServerTests(unittest.TestCase):
             },
         )
 
+    def test_pdf_listing_endpoint_returns_sorted_pdf_names(self):
+        with TemporaryDirectory() as temporary_dir:
+            pdf_dir = Path(temporary_dir) / "pdfs"
+            processed_dir = Path(temporary_dir) / "processed"
+            pdf_dir.mkdir()
+            (pdf_dir / "zeta.pdf").write_text("", encoding="utf-8")
+            (pdf_dir / "alpha.pdf").write_text("", encoding="utf-8")
+            (pdf_dir / "notes.txt").write_text("", encoding="utf-8")
+            fake_settings = SimpleNamespace(
+                pdf_dir=pdf_dir,
+                ensure_runtime_dirs=lambda: processed_dir.mkdir(exist_ok=True),
+            )
+
+            with patch.object(server.RuntimeSettings, "from_env", return_value=fake_settings):
+                response = self.client.get("/v1/corpus/pdfs")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"files": ["alpha.pdf", "zeta.pdf"]})
+
     def test_ingest_task_captures_logs_and_result(self):
-        def fake_run(force, settings_overrides=None):
+        run_calls = {}
+
+        def fake_run(force, settings_overrides=None, selected_files=None, max_workers=1):
+            run_calls["selected_files"] = selected_files
+            run_calls["max_workers"] = max_workers
             print(f"force={force}")
+            print(f"files={selected_files}")
+            print(f"workers={max_workers}")
             print(f"settings={settings_overrides['OLLAMA_CHAT_MODEL']}")
-            return (2, 1)
+            return {"processed": 2, "skipped": 1, "failed": 0, "failures": []}
 
         with patch.object(server, "_run_ingest", side_effect=fake_run):
             response = self.client.post(
                 "/v1/tasks/ingest",
                 json={
                     "force": True,
+                    "selected_files": ["alpha.pdf", "zeta.pdf"],
+                    "max_workers": 4,
                     "settings_overrides": {"OLLAMA_CHAT_MODEL": "qwen-test"},
                 },
             )
@@ -99,8 +129,13 @@ class ServerTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(task["status"], "completed")
-        self.assertEqual(task["result"], [2, 1])
+        self.assertEqual(task["result"], {"processed": 2, "skipped": 1, "failed": 0, "failures": []})
+        self.assertEqual(task["metadata"]["selected_count"], 2)
+        self.assertEqual(task["metadata"]["max_workers"], 4)
+        self.assertEqual(run_calls["selected_files"], ["alpha.pdf", "zeta.pdf"])
+        self.assertEqual(run_calls["max_workers"], 4)
         self.assertIn("force=True", task["log_text"])
+        self.assertIn("workers=4", task["log_text"])
         self.assertIn("qwen-test", task["log_text"])
 
     def test_build_index_task_captures_logs_and_result(self):
@@ -280,6 +315,91 @@ class ServerTests(unittest.TestCase):
         )
         self.assertEqual(response.json()["message"], "Assistant reply")
         self.assertEqual(response.json()["messages"], chat_calls["messages"])
+
+
+class IngestTests(unittest.TestCase):
+    def make_settings(self, temporary_dir: str):
+        base_dir = Path(temporary_dir)
+        pdf_dir = base_dir / "pdfs"
+        processed_dir = base_dir / "processed"
+        pdf_dir.mkdir()
+        processed_dir.mkdir()
+        return SimpleNamespace(
+            pdf_dir=pdf_dir,
+            processed_dir=processed_dir,
+            ensure_runtime_dirs=lambda: None,
+        )
+
+    def test_process_corpus_limits_work_to_selected_files(self):
+        with TemporaryDirectory() as temporary_dir:
+            settings = self.make_settings(temporary_dir)
+            (settings.pdf_dir / "alpha.pdf").write_text("", encoding="utf-8")
+            (settings.pdf_dir / "zeta.pdf").write_text("", encoding="utf-8")
+            processed = []
+
+            def fake_process_pdf(pdf_path, runtime_settings):
+                processed.append(pdf_path.name)
+                (runtime_settings.processed_dir / f"{pdf_path.stem}.json").write_text("[]", encoding="utf-8")
+
+            with patch.object(ingest.RuntimeSettings, "from_env", return_value=settings), patch.object(
+                ingest,
+                "process_pdf",
+                side_effect=fake_process_pdf,
+            ):
+                summary = ingest.process_corpus(selected_files=["zeta.pdf"])
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["skipped"], 0)
+        self.assertEqual(summary["failed"], 0)
+        self.assertEqual(processed, ["zeta.pdf"])
+
+    def test_process_corpus_skips_existing_outputs_without_force(self):
+        with TemporaryDirectory() as temporary_dir:
+            settings = self.make_settings(temporary_dir)
+            (settings.pdf_dir / "alpha.pdf").write_text("", encoding="utf-8")
+            (settings.processed_dir / "alpha.json").write_text("[]", encoding="utf-8")
+
+            with patch.object(ingest.RuntimeSettings, "from_env", return_value=settings), patch.object(
+                ingest,
+                "process_pdf",
+            ) as process_pdf:
+                summary = ingest.process_corpus()
+
+        process_pdf.assert_not_called()
+        self.assertEqual(summary["processed"], 0)
+        self.assertEqual(summary["skipped"], 1)
+        self.assertEqual(summary["failed"], 0)
+
+    def test_process_corpus_continues_after_file_failure(self):
+        with TemporaryDirectory() as temporary_dir:
+            settings = self.make_settings(temporary_dir)
+            (settings.pdf_dir / "alpha.pdf").write_text("", encoding="utf-8")
+            (settings.pdf_dir / "broken.pdf").write_text("", encoding="utf-8")
+
+            def fake_process_pdf(pdf_path, runtime_settings):
+                if pdf_path.name == "broken.pdf":
+                    raise RuntimeError("cannot parse")
+                (runtime_settings.processed_dir / f"{pdf_path.stem}.json").write_text("[]", encoding="utf-8")
+
+            with patch.object(ingest.RuntimeSettings, "from_env", return_value=settings), patch.object(
+                ingest,
+                "process_pdf",
+                side_effect=fake_process_pdf,
+            ):
+                summary = ingest.process_corpus(max_workers=2)
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["skipped"], 0)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(summary["failures"][0]["filename"], "broken.pdf")
+        self.assertIn("cannot parse", summary["failures"][0]["error"])
+
+    def test_process_corpus_rejects_unsafe_selected_filename(self):
+        with TemporaryDirectory() as temporary_dir:
+            settings = self.make_settings(temporary_dir)
+            with patch.object(ingest.RuntimeSettings, "from_env", return_value=settings):
+                with self.assertRaises(ValueError):
+                    ingest.process_corpus(selected_files=["../outside.pdf"])
 
 
 if __name__ == "__main__":

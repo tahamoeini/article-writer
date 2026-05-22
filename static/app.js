@@ -4,6 +4,8 @@ const tasksEmptyEl = document.getElementById("tasks-empty");
 const researchOutputEl = document.getElementById("research-output");
 const healthOutputEl = document.getElementById("health-output");
 const chatHistoryEl = document.getElementById("chat-history");
+const pdfFileListEl = document.getElementById("pdf-file-list");
+const pdfListStatusEl = document.getElementById("pdf-list-status");
 
 let selectedTaskId = null;
 let taskPollTimer = null;
@@ -68,6 +70,40 @@ async function loadModels() {
   } catch (error) {
     setText(healthOutputEl, error.message);
   }
+}
+
+async function loadPdfFiles() {
+  setText(pdfListStatusEl, "Loading PDF files...");
+  try {
+    const data = await fetchJson("/v1/corpus/pdfs", { method: "GET" });
+    pdfFileListEl.replaceChildren();
+    data.files.forEach((filename) => {
+      const option = document.createElement("option");
+      option.value = filename;
+      option.textContent = filename;
+      pdfFileListEl.appendChild(option);
+    });
+    setText(
+      pdfListStatusEl,
+      data.files.length
+        ? `Loaded ${data.files.length} PDF file(s). Leave unselected to ingest all.`
+        : "No PDF files found in corpus/pdfs."
+    );
+  } catch (error) {
+    setText(pdfListStatusEl, error.message);
+  }
+}
+
+function selectedPdfFiles() {
+  return Array.from(pdfFileListEl.selectedOptions).map((option) => option.value);
+}
+
+function ingestWorkerCount() {
+  const rawValue = Number.parseInt(document.getElementById("ingest-workers").value, 10);
+  if (Number.isNaN(rawValue)) {
+    return 1;
+  }
+  return Math.min(Math.max(rawValue, 1), 32);
 }
 
 function renderTask(task) {
@@ -222,9 +258,22 @@ async function sendChatMessage() {
 document.getElementById("models-button").addEventListener("click", loadModels);
 document.getElementById("health-button").addEventListener("click", checkHealth);
 document.getElementById("refresh-tasks-button").addEventListener("click", refreshTasks);
+document.getElementById("refresh-pdfs-button").addEventListener("click", loadPdfFiles);
+document.getElementById("select-all-pdfs-button").addEventListener("click", () => {
+  Array.from(pdfFileListEl.options).forEach((option) => {
+    option.selected = true;
+  });
+});
+document.getElementById("clear-pdfs-button").addEventListener("click", () => {
+  Array.from(pdfFileListEl.options).forEach((option) => {
+    option.selected = false;
+  });
+});
 document.getElementById("ingest-button").addEventListener("click", () =>
   startTask("/v1/tasks/ingest", {
     force: document.getElementById("ingest-force").checked,
+    selected_files: selectedPdfFiles(),
+    max_workers: ingestWorkerCount(),
     settings_overrides: currentSettings(),
   })
 );
@@ -245,4 +294,5 @@ document.getElementById("research-button").addEventListener("click", runResearch
 document.getElementById("chat-button").addEventListener("click", sendChatMessage);
 
 renderChat();
+loadPdfFiles();
 refreshTasks();

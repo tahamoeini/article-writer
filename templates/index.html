@@ -88,8 +88,22 @@
             <div class="action-card">
               <div>
                 <h3>Ingest PDFs</h3>
-                <p>Convert files in <code>corpus/pdfs</code> into processed JSON.</p>
+                <p>Convert selected files in <code>corpus/pdfs</code> into processed JSON. Leave empty to ingest all PDFs.</p>
               </div>
+              <label>
+                Parallel workers
+                <input id="ingest-workers" type="number" min="1" max="32" value="4" />
+              </label>
+              <div class="inline-actions">
+                <button id="refresh-pdfs-button" type="button">Refresh PDF list</button>
+                <button id="select-all-pdfs-button" type="button">Select all</button>
+                <button id="clear-pdfs-button" type="button">Clear selection</button>
+              </div>
+              <label>
+                PDF files
+                <select id="pdf-file-list" multiple size="8"></select>
+              </label>
+              <small id="pdf-list-status" class="muted">PDF list has not loaded yet.</small>
               <div class="checkbox-row">
                 <input id="ingest-force" type="checkbox" aria-label="Force rebuild existing files" />
                 <label class="checkbox" for="ingest-force">Force rebuild existing files</label>
