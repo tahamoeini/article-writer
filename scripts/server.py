@@ -14,7 +14,10 @@ class ResearchQuery(BaseModel):
 
 @lru_cache(maxsize=1)
 def get_engine():
-    from scripts.query_engine import get_advanced_query_engine
+    try:
+        from scripts.query_engine import get_advanced_query_engine
+    except ModuleNotFoundError:
+        from query_engine import get_advanced_query_engine
 
     return get_advanced_query_engine()
 

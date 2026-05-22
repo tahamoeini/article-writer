@@ -2,8 +2,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from qdrant_client import QdrantClient
-
 
 def _clean_url(value: str) -> str:
     return value.rstrip("/")
@@ -76,7 +74,9 @@ class RuntimeSettings:
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_qdrant_client(self) -> QdrantClient:
+    def create_qdrant_client(self):
+        from qdrant_client import QdrantClient
+
         return QdrantClient(
             host=self.qdrant_host,
             port=self.qdrant_port,

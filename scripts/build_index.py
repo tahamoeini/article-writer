@@ -9,7 +9,10 @@ from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client.models import Distance, VectorParams
 
-from scripts.config import RuntimeSettings
+try:
+    from scripts.config import RuntimeSettings
+except ModuleNotFoundError:
+    from config import RuntimeSettings
 
 
 def load_paragraphs(json_file: Path) -> list[dict[str, object]]:

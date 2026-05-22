@@ -4,8 +4,12 @@ from llama_index.core.query_engine import SubQuestionQueryEngine
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.llms.ollama import Ollama
 
-from scripts.config import RuntimeSettings
-from scripts.query_engine import get_advanced_query_engine
+try:
+    from scripts.config import RuntimeSettings
+    from scripts.query_engine import get_advanced_query_engine
+except ModuleNotFoundError:
+    from config import RuntimeSettings
+    from query_engine import get_advanced_query_engine
 
 
 def run_global_literature_review(broad_query: str, verbose: bool = False):

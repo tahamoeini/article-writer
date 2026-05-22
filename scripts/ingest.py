@@ -4,14 +4,18 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import requests
-
-from scripts.config import RuntimeSettings
+try:
+    from scripts.config import RuntimeSettings
+except ModuleNotFoundError:
+    from config import RuntimeSettings
 
 try:
     import pymupdf
 except ImportError:
-    import fitz as pymupdf
+    try:
+        import fitz as pymupdf
+    except ImportError:
+        pymupdf = None
 
 
 MIN_BLOCK_LENGTH = 40
@@ -32,6 +36,11 @@ def extract_year(first_page_text: str, creation_date: str) -> str:
 
 
 def extract_basic_metadata(pdf_path: Path) -> dict[str, str | int]:
+    if pymupdf is None:
+        raise RuntimeError(
+            "A PDF parser is required. Install PyMuPDF (preferred) or fitz package before running ingestion."
+        )
+
     with pymupdf.open(pdf_path) as document:
         metadata = document.metadata or {}
         first_page_text = document[0].get_text("text")[:2000] if len(document) else ""
@@ -47,6 +56,12 @@ def extract_basic_metadata(pdf_path: Path) -> dict[str, str | int]:
 
 
 def extract_grobid_metadata(pdf_path: Path, settings: RuntimeSettings) -> dict[str, str] | None:
+    try:
+        import requests
+    except ModuleNotFoundError:
+        # Continue without GROBID enrichment when requests is unavailable.
+        return None
+
     try:
         with pdf_path.open("rb") as handle:
             response = requests.post(
@@ -93,6 +108,11 @@ def extract_grobid_metadata(pdf_path: Path, settings: RuntimeSettings) -> dict[s
 
 
 def extract_structured_sections(pdf_path: Path, metadata: dict[str, str | int]) -> list[dict[str, object]]:
+    if pymupdf is None:
+        raise RuntimeError(
+            "A PDF parser is required. Install PyMuPDF (preferred) or fitz package before running ingestion."
+        )
+
     structured_sections: list[dict[str, object]] = []
 
     with pymupdf.open(pdf_path) as document:

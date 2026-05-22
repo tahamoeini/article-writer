@@ -10,7 +10,10 @@ from llama_index.llms.ollama import Ollama
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 
-from scripts.config import RuntimeSettings
+try:
+    from scripts.config import RuntimeSettings
+except ModuleNotFoundError:
+    from config import RuntimeSettings
 
 
 SYSTEM_PROMPT = """You are a strict academic literature review research assistant.
