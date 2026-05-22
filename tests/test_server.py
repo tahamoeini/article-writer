@@ -244,18 +244,16 @@ class ServerTests(unittest.TestCase):
                 aggregate_docstore = MagicMock()
                 aggregate_docstore.add_documents.return_value = None
                 aggregate_docstore.persist.return_value = None
-                batch_docstore = MagicMock()
-                batch_docstore.add_documents.return_value = None
                 final_docstore = MagicMock()
                 final_docstore.get_node.return_value = fake_node
-                docstore_class.side_effect = [aggregate_docstore, batch_docstore]
+                docstore_class.side_effect = [aggregate_docstore]
                 docstore_class.from_persist_path.return_value = final_docstore
                 storage_context_class.from_defaults.return_value = SimpleNamespace()
 
                 result = build_index.build_hierarchical_index(max_workers=4)
 
         self.assertEqual(result, (1, 1))
-        self.assertIs(storage_context_class.from_defaults.call_args.kwargs["docstore"], batch_docstore)
+        self.assertIs(storage_context_class.from_defaults.call_args.kwargs["docstore"], aggregate_docstore)
         aggregate_docstore.add_documents.assert_called_once_with([fake_node])
         aggregate_docstore.persist.assert_called_once_with(str(fake_settings.docstore_path))
         persist_bm25_index.assert_called_once_with([fake_node], fake_settings)
