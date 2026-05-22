@@ -1,3 +1,5 @@
 **/*.pdf
 **/*.txt
+**/*.csv
+**/*.xslx
 **/local-academic-rag/corpus
