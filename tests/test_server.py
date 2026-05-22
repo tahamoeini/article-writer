@@ -168,6 +168,52 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["text"], "Grounded answer")
         self.assertEqual(payload["citations"][0]["title"], "Paper")
 
+    def test_chat_endpoint_assembles_messages_and_parses_response(self):
+        chat_calls = {}
+
+        def fake_chat(*, model, messages):
+            chat_calls["model"] = model
+            chat_calls["messages"] = messages
+            return {"message": {"content": "Assistant reply"}}
+
+        def fake_from_env(overrides=None):
+            chat_calls["overrides"] = overrides
+            def fake_create_ollama_client(timeout=None):
+                chat_calls["timeout"] = timeout
+                return SimpleNamespace(chat=fake_chat)
+
+            return SimpleNamespace(
+                ollama_chat_model=overrides["OLLAMA_CHAT_MODEL"],
+                create_ollama_client=fake_create_ollama_client,
+            )
+
+        with patch.object(server.RuntimeSettings, "from_env", side_effect=fake_from_env):
+            response = self.client.post(
+                "/v1/chat",
+                json={
+                    "prompt": "Summarize the findings",
+                    "messages": [{"role": "system", "content": "Be concise."}],
+                    "settings_overrides": {
+                        "OLLAMA_CHAT_MODEL": "qwen-chat",
+                        "BLANK": "   ",
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(chat_calls["overrides"], {"OLLAMA_CHAT_MODEL": "qwen-chat"})
+        self.assertEqual(chat_calls["timeout"], server.OLLAMA_CHAT_TIMEOUT_SECONDS)
+        self.assertEqual(chat_calls["model"], "qwen-chat")
+        self.assertEqual(
+            chat_calls["messages"],
+            [
+                {"role": "system", "content": "Be concise."},
+                {"role": "user", "content": "Summarize the findings"},
+            ],
+        )
+        self.assertEqual(response.json()["message"], "Assistant reply")
+        self.assertEqual(response.json()["messages"], chat_calls["messages"])
+
 
 if __name__ == "__main__":
     unittest.main()
