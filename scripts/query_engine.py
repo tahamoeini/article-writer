@@ -1,62 +1,102 @@
-import os
-from pathlib import Path
-from qdrant_client import QdrantClient
+import json
+
 from llama_index.core import StorageContext, VectorStoreIndex
-from llama_index.core.retrievers import AutoMergingRetriever, QueryFusionRetriever
-from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import get_response_synthesizer
-from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.core.retrievers import AutoMergingRetriever, QueryFusionRetriever
 from llama_index.core.storage.docstore import SimpleDocumentStore
-from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.llms.ollama import Ollama
+from llama_index.retrievers.bm25 import BM25Retriever
+from llama_index.vector_stores.qdrant import QdrantVectorStore
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DOCSTORE_PATH = BASE_DIR / "index_storage" / "docstore.json"
+from scripts.config import RuntimeSettings
+
 
 SYSTEM_PROMPT = """You are a strict academic literature review research assistant.
-Your sole function is to synthesize and analyze info exclusively from the provided context blocks.
-1. Only base assertions on explicitly retrieved context. Do not extrapolate.
-2. If context is insufficient, say: "The retrieved corpus does not contain sufficient evidence."
-3. Every claim must have an inline citation: [Author, Year, "Title", p. X, para. Y]
+Use only the retrieved corpus context when answering.
+If the context is insufficient, reply exactly: The retrieved corpus does not contain sufficient evidence.
+Every substantive claim must include an inline citation in this format: [Author, Year, \"Title\", p. X, para. Y]
+Prefer concise synthesis over speculation.
 """
 
-def get_advanced_query_engine():
-    QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
-    OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-    
-    client = QdrantClient(host=QDRANT_HOST, port=6333)
-    vector_store = QdrantVectorStore(client=client, collection_name="academic_corpus")
-    docstore = SimpleDocumentStore.from_persist_path(str(DOCSTORE_PATH))
-    
-    embed_model = OllamaEmbedding(model_name="nomic-embed-text", base_url=OLLAMA_BASE_URL)
-    llm = Ollama(model="qwen2.5:7b-instruct", base_url=OLLAMA_BASE_URL, request_timeout=300.0)
-    
+
+class CitationAwareQueryEngine:
+    def __init__(self, query_engine):
+        self._query_engine = query_engine
+
+    def query(self, prompt: str):
+        scoped_prompt = f"{SYSTEM_PROMPT}\n\nResearch question:\n{prompt.strip()}"
+        return self._query_engine.query(scoped_prompt)
+
+
+def load_docstore(settings: RuntimeSettings) -> SimpleDocumentStore:
+    if not settings.docstore_path.exists():
+        raise FileNotFoundError(
+            f"Missing docstore artifact at {settings.docstore_path}. Run scripts/build_index.py first."
+        )
+    return SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
+
+
+def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
+    if settings.leaf_nodes_path.exists():
+        with settings.leaf_nodes_path.open("r", encoding="utf-8") as handle:
+            node_ids = json.load(handle)
+        nodes = [docstore.docs[node_id] for node_id in node_ids if node_id in docstore.docs]
+        if nodes:
+            return nodes
+
+    return [node for node in docstore.docs.values() if len(getattr(node, "text", "")) <= 500]
+
+
+def get_advanced_query_engine() -> CitationAwareQueryEngine:
+    settings = RuntimeSettings.from_env()
+    docstore = load_docstore(settings)
+    client = settings.create_qdrant_client()
+    if not client.collection_exists(settings.collection_name):
+        raise FileNotFoundError(
+            f"Missing Qdrant collection '{settings.collection_name}'. Run scripts/build_index.py first."
+        )
+
+    vector_store = QdrantVectorStore(client=client, collection_name=settings.collection_name)
+    embed_model = OllamaEmbedding(
+        model_name=settings.ollama_embed_model,
+        base_url=settings.ollama_base_url,
+    )
+    llm = Ollama(
+        model=settings.ollama_chat_model,
+        base_url=settings.ollama_base_url,
+        request_timeout=300.0,
+    )
+
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-    
-    vector_retriever = index.as_retriever(similarity_top_k=30)
-    all_nodes = list(docstore.docs.values())
-    leaf_nodes = [n for n in all_nodes if "is_leaf" in n.metadata or len(n.text) < 500]
-    bm25_retriever = BM25Retriever.from_defaults(nodes=leaf_nodes, similarity_top_k=30)
-    
+    vector_retriever = index.as_retriever(similarity_top_k=settings.vector_top_k)
+    leaf_nodes = load_leaf_nodes(settings, docstore)
+    bm25_retriever = BM25Retriever.from_defaults(nodes=leaf_nodes, similarity_top_k=settings.bm25_top_k)
+
     fusion_retriever = QueryFusionRetriever(
         retrievers=[vector_retriever, bm25_retriever],
-        similarity_top_k=40,
+        similarity_top_k=settings.fused_top_k,
+        num_queries=2,
         mode="reciprocal_rerank",
-        use_async=True
+        use_async=True,
+        verbose=False,
     )
-    
+
     storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
     auto_merge_retriever = AutoMergingRetriever(
         fusion_retriever,
         storage_context=storage_context,
-        simple_ratio_thresh=0.4
+        simple_ratio_thresh=0.4,
     )
-    
+
     synthesizer = get_response_synthesizer(
         llm=llm,
         response_mode="tree_summarize",
-        extra_info={"system_prompt": SYSTEM_PROMPT}
+        use_async=True,
     )
-    
-    return RetrieverQueryEngine(retriever=auto_merge_retriever, response_synthesizer=synthesizer)
+    query_engine = RetrieverQueryEngine(
+        retriever=auto_merge_retriever,
+        response_synthesizer=synthesizer,
+    )
+    return CitationAwareQueryEngine(query_engine)

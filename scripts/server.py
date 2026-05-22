@@ -1,17 +1,45 @@
-import uvicorn
-from fastapi import FastAPI
-from pydantic import BaseModel
-from scripts.query_engine import get_advanced_query_engine
+import os
+from functools import lru_cache
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
 
 app = FastAPI(title="Local Academic RAG Engine API")
-engine = get_advanced_query_engine()
+
 
 class ResearchQuery(BaseModel):
-    prompt: str
+    prompt: str = Field(min_length=3, description="Research question or prompt.")
+
+
+@lru_cache(maxsize=1)
+def get_engine():
+    from scripts.query_engine import get_advanced_query_engine
+
+    return get_advanced_query_engine()
+
+
+@app.get("/health")
+async def health_check():
+    try:
+        get_engine()
+    except Exception as exc:
+        return {
+            "status": "degraded",
+            "detail": str(exc),
+        }
+
+    return {"status": "ok"}
+
 
 @app.post("/v1/research/query")
 async def execute_query(payload: ResearchQuery):
-    response = engine.query(payload.prompt)
+    try:
+        engine = get_engine()
+        response = engine.query(payload.prompt)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     return {
         "text": str(response),
         "citations": [
@@ -20,11 +48,15 @@ async def execute_query(payload: ResearchQuery):
                 "author": node.node.metadata.get("author"),
                 "year": node.node.metadata.get("year"),
                 "page": node.node.metadata.get("page"),
-                "score": node.score
+                "paragraph": node.node.metadata.get("paragraph"),
+                "score": node.score,
             }
             for node in response.source_nodes
-        ]
+        ],
     }
 
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
