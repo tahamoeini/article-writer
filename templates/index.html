@@ -167,14 +167,20 @@
 
         <div class="panel">
           <div class="panel-header">
-            <h2>Task monitor</h2>
+            <div>
+              <h2>Live logs</h2>
+              <p id="task-status" class="muted">No task has started yet.</p>
+            </div>
             <button id="refresh-tasks-button" type="button">Refresh</button>
           </div>
-          <div id="tasks-empty" class="muted">No tasks started yet.</div>
-          <div id="task-list" class="task-list"></div>
-          <div class="log-panel">
-            <h3>Logs</h3>
-            <pre id="task-logs">Select a task to inspect logs.</pre>
+          <div class="terminal-panel" aria-live="polite">
+            <div class="terminal-bar">
+              <span></span>
+              <span></span>
+              <span></span>
+              <strong>Task output</strong>
+            </div>
+            <pre id="task-logs">Waiting for task output...</pre>
           </div>
         </div>
       </section>

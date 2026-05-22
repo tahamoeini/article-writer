@@ -170,7 +170,8 @@ button:disabled {
 .output-card,
 .task-item,
 .chat-bubble,
-.log-panel {
+.log-panel,
+.terminal-panel {
   background: #020617;
   border: 1px solid #1e293b;
   border-radius: 14px;
@@ -207,20 +208,6 @@ button:disabled {
   min-height: 180px;
 }
 
-.task-list {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.task-item {
-  cursor: pointer;
-}
-
-.task-item.active {
-  border-color: #38bdf8;
-}
-
 .task-item small,
 .chat-bubble small {
   color: #94a3b8;
@@ -243,6 +230,52 @@ button:disabled {
 .log-panel pre,
 .output-card,
 .status-card {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  padding: 10px 12px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.terminal-bar span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ef4444;
+}
+
+.terminal-bar span:nth-child(2) {
+  background: #f59e0b;
+}
+
+.terminal-bar span:nth-child(3) {
+  background: #22c55e;
+}
+
+.terminal-panel pre {
+  min-height: 420px;
+  max-height: 620px;
+  margin: 0;
+  overflow: auto;
+  padding: 16px;
+  background: #020617;
+  color: #d1fae5;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }

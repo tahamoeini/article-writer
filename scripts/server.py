@@ -352,7 +352,7 @@ class TaskManager:
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         with self._lock:
             record = self._tasks.get(task_id)
-            return record.to_payload() if record else None
+            return record.to_payload(log_preview_chars=None) if record else None
 
 
 task_manager = TaskManager()

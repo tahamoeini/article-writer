@@ -1,18 +1,13 @@
 services:
   qdrant:
-    image: qdrant/qdrant:v1.15.5
+    image: qdrant/qdrant:latest
     container_name: local_qdrant
     ports:
       - "6333:6333"
     volumes:
       - qdrant_storage:/qdrant/storage
     healthcheck:
-      test:
-        [
-          "CMD",
-          "./qdrant",
-          "healthcheck",
-        ]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -25,11 +20,7 @@ services:
     ports:
       - "8070:8070"
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8070/api/isalive', timeout=5).read()\" || exit 1",
-        ]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8070'"]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -57,7 +48,7 @@ services:
     environment:
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_EMBED_MODEL: nomic-embed-text
-      OLLAMA_CHAT_MODEL: qwen3.6:35b
+      OLLAMA_CHAT_MODEL: qwen3.5:35b
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
       QDRANT_COLLECTION: academic_corpus

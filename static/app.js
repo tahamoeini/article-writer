@@ -1,6 +1,5 @@
-const taskListEl = document.getElementById("task-list");
 const taskLogsEl = document.getElementById("task-logs");
-const tasksEmptyEl = document.getElementById("tasks-empty");
+const taskStatusEl = document.getElementById("task-status");
 const researchOutputEl = document.getElementById("research-output");
 const healthOutputEl = document.getElementById("health-output");
 const chatHistoryEl = document.getElementById("chat-history");
@@ -10,6 +9,7 @@ const pdfListStatusEl = document.getElementById("pdf-list-status");
 let selectedTaskId = null;
 let taskPollTimer = null;
 let chatMessages = [];
+let lastLogText = "";
 
 function currentSettings() {
   return {
@@ -132,77 +132,61 @@ function ingestWorkerCount() {
   return Math.min(Math.max(rawValue, 1), 32);
 }
 
-function renderTask(task) {
-  const item = document.createElement("button");
-  item.type = "button";
-  item.className = `task-item ${task.id === selectedTaskId ? "active" : ""}`;
-  const title = document.createElement("div");
-  title.className = "task-title";
-
-  const name = document.createElement("strong");
-  name.textContent = task.name;
-
-  const status = document.createElement("span");
-  status.className = "status-pill";
-  status.textContent = task.status;
-
-  title.append(name, status);
-
-  const startedAt = document.createElement("small");
-  startedAt.textContent = task.started_at;
-
-  const metadata = document.createElement("small");
-  metadata.textContent = JSON.stringify(task.metadata);
-
-  item.append(title, startedAt, metadata);
-  item.addEventListener("click", () => {
-    selectedTaskId = task.id;
-    refreshTasks();
-  });
-  return item;
-}
-
 async function refreshTasks() {
   try {
     const data = await fetchJson("/v1/tasks", { method: "GET" });
-    taskListEl.replaceChildren();
-    tasksEmptyEl.style.display = data.tasks.length ? "none" : "block";
-    data.tasks.forEach((task) => taskListEl.appendChild(renderTask(task)));
+    const latestTask = data.tasks.find((task) => task.status === "running") || data.tasks[0];
 
-    if (!selectedTaskId && data.tasks.length) {
-      selectedTaskId = data.tasks[0].id;
+    if (!latestTask) {
+      selectedTaskId = null;
+      lastLogText = "";
+      setText(taskStatusEl, "No task has started yet.");
+      setText(taskLogsEl, "Waiting for task output...");
+      stopTaskPolling();
+      return;
     }
+
+    selectedTaskId = latestTask.id;
+    setText(taskStatusEl, `${latestTask.name} · ${latestTask.status} · started ${latestTask.started_at}`);
+
     if (selectedTaskId) {
-      let selected;
-      try {
-        selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
-      } catch (error) {
-        selectedTaskId = data.tasks[0]?.id || null;
-        if (selectedTaskId) {
-          selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
-        } else {
-          setText(taskLogsEl, error.message);
-        }
-      }
-      if (!selected) {
-        return;
-      }
+      const selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
+      const logText = selected.log_text || "";
+      const terminalText = logText || JSON.stringify(selected.result || "No output yet.", null, 2);
+
       if (selected.error) {
-        setText(taskLogsEl, `${selected.log_text}\n\nERROR: ${selected.error}`);
+        setText(taskLogsEl, `${logText}\n\nERROR: ${selected.error}`);
       } else {
-        setText(taskLogsEl, selected.log_text || JSON.stringify(selected.result || "No logs yet.", null, 2));
+        setText(taskLogsEl, terminalText);
+      }
+
+      if (taskLogsEl.textContent !== lastLogText) {
+        lastLogText = taskLogsEl.textContent;
+        taskLogsEl.scrollTop = taskLogsEl.scrollHeight;
       }
     }
 
     const hasRunning = data.tasks.some((task) => task.status === "running");
-    if (hasRunning && !taskPollTimer) {
-      taskPollTimer = window.setInterval(refreshTasks, 2500);
-    } else if (!hasRunning && taskPollTimer) {
-      window.clearInterval(taskPollTimer);
-      taskPollTimer = null;
+    if (hasRunning) {
+      startTaskPolling();
+    } else {
+      stopTaskPolling();
     }
   } catch (error) {
     setText(taskLogsEl, error.message);
+  }
+}
+
+function startTaskPolling() {
+  if (!taskPollTimer) {
+    taskPollTimer = window.setInterval(refreshTasks, 1000);
+  }
+}
+
+function stopTaskPolling() {
+  if (taskPollTimer) {
+    window.clearInterval(taskPollTimer);
+    taskPollTimer = null;
   }
 }
 
@@ -213,6 +197,7 @@ async function startTask(url, payload) {
   });
   selectedTaskId = task.id;
   await refreshTasks();
+  startTaskPolling();
 }
 
 async function checkHealth() {

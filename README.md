@@ -56,7 +56,7 @@ The scripts read their settings from environment variables, with these defaults:
 - QDRANT_TIMEOUT: 30
 - OLLAMA_BASE_URL: http://127.0.0.1:11434
 - OLLAMA_EMBED_MODEL: nomic-embed-text
-- OLLAMA_CHAT_MODEL: qwen3.6:35b
+- OLLAMA_CHAT_MODEL: qwen3.5:35b
 - GROBID_URL: http://127.0.0.1:8070
 - CHUNK_SIZES: 2048,768,256
 - VECTOR_TOP_K: 24
@@ -80,7 +80,7 @@ Basic users should start with the defaults and only change one setting at a time
 Make sure the selected Ollama models are installed locally before using them:
 
     ollama pull nomic-embed-text
-    ollama pull qwen3.6:35b
+    ollama pull qwen3.5:35b
 
 ## Recommended Workflow
 
