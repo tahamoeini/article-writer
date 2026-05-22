@@ -5,6 +5,7 @@ const healthOutputEl = document.getElementById("health-output");
 const chatHistoryEl = document.getElementById("chat-history");
 const pdfFileListEl = document.getElementById("pdf-file-list");
 const pdfListStatusEl = document.getElementById("pdf-list-status");
+const cancelTaskButtonEl = document.getElementById("cancel-task-button");
 
 let selectedTaskId = null;
 let taskPollTimer = null;
@@ -73,12 +74,13 @@ function fillModelSelect(selectId, models) {
 async function withButtonBusy(buttonId, busyText, action) {
   const button = document.getElementById(buttonId);
   const originalText = button.textContent;
+  const wasDisabled = button.disabled;
   button.disabled = true;
   button.textContent = busyText;
   try {
     return await action();
   } finally {
-    button.disabled = false;
+    button.disabled = wasDisabled;
     button.textContent = originalText;
   }
 }
@@ -132,6 +134,20 @@ function ingestWorkerCount() {
   return Math.min(Math.max(rawValue, 1), 32);
 }
 
+function buildWorkerCount() {
+  const rawValue = Number.parseInt(document.getElementById("build-workers").value, 10);
+  if (Number.isNaN(rawValue)) {
+    return 1;
+  }
+  return Math.min(Math.max(rawValue, 1), 32);
+}
+
+function updateCancelButton(task) {
+  const canCancel = Boolean(task && task.status === "running" && !task.cancel_requested);
+  cancelTaskButtonEl.disabled = !canCancel;
+  cancelTaskButtonEl.textContent = task && task.cancel_requested ? "Cancellation requested" : "Cancel current task";
+}
+
 async function refreshTasks() {
   try {
     const data = await fetchJson("/v1/tasks", { method: "GET" });
@@ -142,12 +158,15 @@ async function refreshTasks() {
       lastLogText = "";
       setText(taskStatusEl, "No task has started yet.");
       setText(taskLogsEl, "Waiting for task output...");
+      updateCancelButton(null);
       stopTaskPolling();
       return;
     }
 
     selectedTaskId = latestTask.id;
-    setText(taskStatusEl, `${latestTask.name} · ${latestTask.status} · started ${latestTask.started_at}`);
+    const cancelText = latestTask.cancel_requested ? " · cancellation requested" : "";
+    setText(taskStatusEl, `${latestTask.name} · ${latestTask.status}${cancelText} · started ${latestTask.started_at}`);
+    updateCancelButton(latestTask);
 
     if (selectedTaskId) {
       const selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
@@ -170,11 +189,28 @@ async function refreshTasks() {
     if (hasRunning) {
       startTaskPolling();
     } else {
+      updateCancelButton(latestTask);
       stopTaskPolling();
     }
   } catch (error) {
     setText(taskLogsEl, error.message);
   }
+}
+
+async function cancelCurrentTask() {
+  if (!selectedTaskId) {
+    return;
+  }
+
+  await withButtonBusy("cancel-task-button", "Cancelling...", async () => {
+    try {
+      await fetchJson(`/v1/tasks/${selectedTaskId}/cancel`, { method: "POST" });
+      await refreshTasks();
+      startTaskPolling();
+    } catch (error) {
+      setText(taskLogsEl, error.message);
+    }
+  });
 }
 
 function startTaskPolling() {
@@ -292,6 +328,7 @@ async function sendChatMessage() {
 document.getElementById("models-button").addEventListener("click", loadModels);
 document.getElementById("health-button").addEventListener("click", checkHealth);
 document.getElementById("refresh-tasks-button").addEventListener("click", refreshTasks);
+cancelTaskButtonEl.addEventListener("click", cancelCurrentTask);
 document.getElementById("refresh-pdfs-button").addEventListener("click", loadPdfFiles);
 document.getElementById("select-all-pdfs-button").addEventListener("click", () => {
   Array.from(pdfFileListEl.options).forEach((option) => {
@@ -317,6 +354,7 @@ document.getElementById("build-button").addEventListener("click", () =>
   withButtonBusy("build-button", "Starting...", () => {
     return startTask("/v1/tasks/build-index", {
       recreate: document.getElementById("build-recreate").checked,
+      max_workers: buildWorkerCount(),
       settings_overrides: currentSettings(),
     });
   })

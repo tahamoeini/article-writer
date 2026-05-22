@@ -160,6 +160,10 @@ button:disabled {
   opacity: 0.75;
 }
 
+.danger-button {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+}
+
 .action-stack {
   display: grid;
   gap: 16px;

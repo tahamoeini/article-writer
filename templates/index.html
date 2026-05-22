@@ -143,6 +143,11 @@
                 <h3>Build index</h3>
                 <p>Rebuild the hierarchical retrieval index and refresh query artifacts.</p>
               </div>
+              <label>
+                Preparation workers
+                <input id="build-workers" type="number" min="1" max="32" value="4" />
+                <small>Parallelizes processed JSON loading and document preparation only; embedding still uses the selected Ollama model normally.</small>
+              </label>
               <div class="checkbox-row">
                 <input id="build-recreate" type="checkbox" aria-label="Recreate the Qdrant collection" />
                 <label class="checkbox" for="build-recreate">Recreate the Qdrant collection</label>
@@ -171,7 +176,10 @@
               <h2>Live logs</h2>
               <p id="task-status" class="muted">No task has started yet.</p>
             </div>
-            <button id="refresh-tasks-button" type="button">Refresh</button>
+            <div class="inline-actions">
+              <button id="cancel-task-button" class="danger-button" type="button" disabled>Cancel current task</button>
+              <button id="refresh-tasks-button" type="button">Refresh</button>
+            </div>
           </div>
           <div class="terminal-panel" aria-live="polite">
             <div class="terminal-bar">

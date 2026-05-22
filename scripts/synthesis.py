@@ -1,4 +1,5 @@
 import argparse
+from threading import Event
 from typing import Mapping
 
 from llama_index.core.query_engine import SubQuestionQueryEngine
@@ -17,7 +18,11 @@ def run_global_literature_review(
     broad_query: str,
     verbose: bool = False,
     settings_overrides: Mapping[str, str] | None = None,
+    cancel_event: Event | None = None,
 ):
+    if cancel_event and cancel_event.is_set():
+        raise InterruptedError("Synthesis task was cancelled before it started.")
+
     settings = RuntimeSettings.from_env(settings_overrides)
     base_engine = get_advanced_query_engine(settings_overrides=settings_overrides)
     llm = Ollama(
@@ -45,6 +50,9 @@ def run_global_literature_review(
     )
 
     print(f"Starting global synthesis workflow for: {broad_query}")
+    if cancel_event and cancel_event.is_set():
+        raise InterruptedError("Synthesis task was cancelled before querying the model.")
+
     final_analysis = map_reduce_engine.query(broad_query)
     print("\n======================= FINAL REPORT =======================\n")
     print(final_analysis)

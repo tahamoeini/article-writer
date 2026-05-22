@@ -1,4 +1,5 @@
 import contextlib
+import inspect
 import io
 import os
 import sys
@@ -48,6 +49,7 @@ class IngestRequest(BaseModel):
 
 class BuildIndexRequest(BaseModel):
     recreate: bool = False
+    max_workers: int = Field(default=1, ge=1, le=32)
     settings_overrides: dict[str, str] | None = None
 
 
@@ -85,6 +87,7 @@ class TaskRecord:
     result: Any = None
     error: str | None = None
     ended_at: str | None = None
+    cancel_requested: bool = False
 
     def to_payload(
         self,
@@ -195,6 +198,7 @@ def _run_ingest(
     settings_overrides: Mapping[str, str] | None = None,
     selected_files: list[str] | None = None,
     max_workers: int = 1,
+    cancel_event: threading.Event | None = None,
 ):
     try:
         from scripts.ingest import process_corpus
@@ -206,21 +210,37 @@ def _run_ingest(
         settings_overrides=settings_overrides,
         selected_files=selected_files,
         max_workers=max_workers,
+        cancel_event=cancel_event,
     )
 
 
-def _run_build_index(recreate: bool, settings_overrides: Mapping[str, str] | None = None):
+def _run_build_index(
+    recreate: bool,
+    settings_overrides: Mapping[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
+    max_workers: int = 1,
+):
     try:
         from scripts.build_index import build_hierarchical_index
     except ModuleNotFoundError:
         from build_index import build_hierarchical_index
 
-    result = build_hierarchical_index(recreate=recreate, settings_overrides=settings_overrides)
+    result = build_hierarchical_index(
+        recreate=recreate,
+        settings_overrides=settings_overrides,
+        cancel_event=cancel_event,
+        max_workers=max_workers,
+    )
     reset_engine_cache()
     return result
 
 
-def _run_synthesis(query: str, verbose: bool, settings_overrides: Mapping[str, str] | None = None):
+def _run_synthesis(
+    query: str,
+    verbose: bool,
+    settings_overrides: Mapping[str, str] | None = None,
+    cancel_event: threading.Event | None = None,
+):
     try:
         from scripts.synthesis import run_global_literature_review
     except ModuleNotFoundError:
@@ -230,6 +250,7 @@ def _run_synthesis(query: str, verbose: bool, settings_overrides: Mapping[str, s
         broad_query=query,
         verbose=verbose,
         settings_overrides=settings_overrides,
+        cancel_event=cancel_event,
     )
 
 
@@ -296,6 +317,7 @@ class TaskManager:
         self._lock = threading.Lock()
         self._execution_lock = threading.Lock()
         self._tasks: dict[str, TaskRecord] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
 
     def create_task(self, name: str, metadata: dict[str, Any], target, **kwargs) -> TaskRecord:
         record = TaskRecord(
@@ -307,6 +329,7 @@ class TaskManager:
         )
         with self._lock:
             self._tasks[record.id] = record
+            self._cancel_events[record.id] = threading.Event()
 
         thread = threading.Thread(
             target=self._run_task,
@@ -326,17 +349,30 @@ class TaskManager:
     def _complete_task(self, task_id: str, *, result: Any = None, error: str | None = None) -> None:
         with self._lock:
             record = self._tasks[task_id]
-            record.status = "failed" if error else "completed"
+            record.status = "cancelled" if record.cancel_requested else "failed" if error else "completed"
             record.result = _serialize_result(result)
-            record.error = error
+            record.error = None if record.cancel_requested else error
             record.ended_at = utc_now()
 
     def _run_task(self, task_id: str, target, kwargs: dict[str, Any]) -> None:
         writer = _TaskLogWriter(lambda message: self._append_log(task_id, message))
+        with self._lock:
+            cancel_event = self._cancel_events[task_id]
+        target_parameters = inspect.signature(target).parameters
+        if "cancel_event" in target_parameters:
+            kwargs = {**kwargs, "cancel_event": cancel_event}
         with self._execution_lock:
+            if cancel_event.is_set():
+                self._append_log(task_id, "Task cancelled before it started.\n")
+                self._complete_task(task_id)
+                return
             try:
                 with TASK_STDOUT.redirect(writer), TASK_STDERR.redirect(writer):
                     result = target(**kwargs)
+            except InterruptedError as exc:
+                self._append_log(task_id, f"\n{exc}\n")
+                self._complete_task(task_id)
+                return
             except Exception as exc:
                 self._append_log(task_id, "\n" + traceback.format_exc())
                 self._complete_task(task_id, error=str(exc))
@@ -353,6 +389,21 @@ class TaskManager:
         with self._lock:
             record = self._tasks.get(task_id)
             return record.to_payload(log_preview_chars=None) if record else None
+
+    def cancel_task(self, task_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            record = self._tasks.get(task_id)
+            if record is None:
+                return None
+            if record.status != "running":
+                return record.to_payload(log_preview_chars=None)
+
+            record.cancel_requested = True
+            cancel_event = self._cancel_events[task_id]
+            cancel_event.set()
+
+        self._append_log(task_id, "\nCancellation requested. The task will stop at the next safe checkpoint.\n")
+        return self.get_task(task_id)
 
 
 task_manager = TaskManager()
@@ -433,6 +484,14 @@ async def get_task(task_id: str):
     return task
 
 
+@app.post("/v1/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    task = task_manager.cancel_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    return task
+
+
 @app.post("/v1/tasks/ingest")
 async def start_ingest(payload: IngestRequest):
     overrides = _normalize_overrides(payload.settings_overrides)
@@ -460,9 +519,14 @@ async def start_build_index(payload: BuildIndexRequest):
     overrides = _normalize_overrides(payload.settings_overrides)
     task = task_manager.create_task(
         "build-index",
-        {"recreate": payload.recreate, "settings_overrides": overrides},
+        {
+            "recreate": payload.recreate,
+            "max_workers": payload.max_workers,
+            "settings_overrides": overrides,
+        },
         _run_build_index,
         recreate=payload.recreate,
+        max_workers=payload.max_workers,
         settings_overrides=overrides or None,
     )
     return task.to_payload()

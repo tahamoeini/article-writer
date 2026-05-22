@@ -4,6 +4,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from threading import Event
 from typing import Mapping
 
 try:
@@ -202,6 +203,7 @@ def process_corpus(
     settings_overrides: Mapping[str, str] | None = None,
     selected_files: list[str] | None = None,
     max_workers: int = 1,
+    cancel_event: Event | None = None,
 ) -> dict[str, object]:
     settings = RuntimeSettings.from_env(settings_overrides)
     settings.ensure_runtime_dirs()
@@ -228,8 +230,17 @@ def process_corpus(
 
         scheduled_files.append(pdf_path)
 
+    if cancel_event and cancel_event.is_set():
+        print("Ingestion cancelled before extraction started.")
+        summary["cancelled"] = True
+        return summary
+
     if max_workers == 1:
         for pdf_path in scheduled_files:
+            if cancel_event and cancel_event.is_set():
+                print("Ingestion cancelled. Stopping before next PDF.")
+                summary["cancelled"] = True
+                break
             try:
                 print(f"Extracting structural text: {pdf_path.name}")
                 process_pdf_safely(pdf_path, settings)
@@ -243,10 +254,21 @@ def process_corpus(
         for pdf_path in scheduled_files:
             print(f"Queueing extraction: {pdf_path.name}")
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(process_pdf_safely, pdf_path, settings): pdf_path for pdf_path in scheduled_files
-            }
+            futures = {}
+            for pdf_path in scheduled_files:
+                if cancel_event and cancel_event.is_set():
+                    print("Ingestion cancelled. Stopping before queueing remaining PDFs.")
+                    summary["cancelled"] = True
+                    break
+                futures[executor.submit(process_pdf_safely, pdf_path, settings)] = pdf_path
+
             for future in concurrent.futures.as_completed(futures):
+                if cancel_event and cancel_event.is_set():
+                    summary["cancelled"] = True
+                    for pending_future in futures:
+                        pending_future.cancel()
+                    print("Ingestion cancelled. Waiting for active PDF extraction to stop.")
+                    break
                 pdf_path = futures[future]
                 try:
                     future.result()
@@ -257,8 +279,9 @@ def process_corpus(
                     summary["failures"].append({"filename": pdf_path.name, "error": str(exc)})
                     print(f"Failed extraction: {pdf_path.name}: {exc}")
 
+    status_label = "Pre-processing cancelled." if summary.get("cancelled") else "Pre-processing completed."
     print(
-        "Pre-processing completed. "
+        f"{status_label} "
         f"processed={summary['processed']}, skipped={summary['skipped']}, failed={summary['failed']}, "
         f"output_dir={settings.processed_dir}"
     )

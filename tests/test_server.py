@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from scripts import build_index
 from scripts import ingest
 from scripts import server
 
@@ -144,11 +145,12 @@ class ServerTests(unittest.TestCase):
         task_started = threading.Event()
         allow_finish = threading.Event()
 
-        def fake_run(recreate, settings_overrides=None):
+        def fake_run(recreate, settings_overrides=None, max_workers=1):
             task_started.set()
             if not allow_finish.wait(timeout=2):
                 raise RuntimeError("Timed out waiting to finish build-index task.")
             print(f"recreate={recreate}")
+            print(f"workers={max_workers}")
             print(f"settings={settings_overrides['OLLAMA_CHAT_MODEL']}")
             return {"indexed": 3}
 
@@ -157,6 +159,7 @@ class ServerTests(unittest.TestCase):
                 "/v1/tasks/build-index",
                 json={
                     "recreate": True,
+                    "max_workers": 4,
                     "settings_overrides": {"OLLAMA_CHAT_MODEL": "qwen-build"},
                 },
             )
@@ -168,8 +171,29 @@ class ServerTests(unittest.TestCase):
 
         self.assertEqual(task["status"], "completed")
         self.assertEqual(task["result"], {"indexed": 3})
+        self.assertEqual(task["metadata"]["max_workers"], 4)
         self.assertIn("recreate=True", task["log_text"])
+        self.assertIn("workers=4", task["log_text"])
         self.assertIn("qwen-build", task["log_text"])
+
+    def test_build_index_parallel_document_loading_preserves_order(self):
+        with TemporaryDirectory() as temporary_dir:
+            processed_dir = Path(temporary_dir)
+            first_file = processed_dir / "alpha.json"
+            second_file = processed_dir / "zeta.json"
+            first_file.write_text(
+                '[{"id":"alpha:1","text":"Alpha text","metadata":{"title":"Alpha"}}]',
+                encoding="utf-8",
+            )
+            second_file.write_text(
+                '[{"id":"zeta:1","text":"Zeta text","metadata":{"title":"Zeta"}}]',
+                encoding="utf-8",
+            )
+            fake_settings = SimpleNamespace(processed_dir=processed_dir)
+
+            documents = build_index.iter_llama_documents(fake_settings, max_workers=2)
+
+        self.assertEqual([document.doc_id for document in documents], ["alpha:1", "zeta:1"])
 
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
