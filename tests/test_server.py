@@ -36,6 +36,8 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Article Writer Control Center", response.text)
         self.assertIn("Run ingest", response.text)
+        self.assertIn("Beginner model guide", response.text)
+        self.assertIn("Embedding model", response.text)
 
     def test_models_endpoint_lists_names(self):
         fake_settings = SimpleNamespace(

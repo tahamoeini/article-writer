@@ -46,30 +46,56 @@ function setText(el, text) {
 function fillModelSelect(selectId, models) {
   const select = document.getElementById(selectId);
   const currentValue = select.value;
-  const options = models.length ? models : [currentValue];
+  const uniqueModels = Array.from(new Set(models.filter(Boolean)));
+  const options = uniqueModels.includes(currentValue)
+    ? uniqueModels
+    : [currentValue, ...uniqueModels].filter(Boolean);
   select.replaceChildren();
+
+  if (!options.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No Ollama models found";
+    option.disabled = true;
+    select.appendChild(option);
+    return;
+  }
+
   options.forEach((model) => {
     const option = document.createElement("option");
     option.value = model;
-    option.textContent = model;
+    option.textContent = model === currentValue && !uniqueModels.includes(model) ? `${model} (current)` : model;
     select.appendChild(option);
   });
-  if (options.includes(currentValue)) {
-    select.value = currentValue;
+  select.value = currentValue || options[0];
+}
+
+async function withButtonBusy(buttonId, busyText, action) {
+  const button = document.getElementById(buttonId);
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = busyText;
+  try {
+    return await action();
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
 
 async function loadModels() {
   setText(healthOutputEl, "Loading models...");
-  try {
-    const url = `/v1/models?ollama_base_url=${encodeURIComponent(currentSettings().OLLAMA_BASE_URL)}`;
-    const data = await fetchJson(url, { method: "GET" });
-    fillModelSelect("chat-model", data.models);
-    fillModelSelect("embed-model", data.models);
-    setText(healthOutputEl, `Loaded ${data.models.length} model(s).`);
-  } catch (error) {
-    setText(healthOutputEl, error.message);
-  }
+  return withButtonBusy("models-button", "Loading...", async () => {
+    try {
+      const url = `/v1/models?ollama_base_url=${encodeURIComponent(currentSettings().OLLAMA_BASE_URL)}`;
+      const data = await fetchJson(url, { method: "GET" });
+      fillModelSelect("chat-model", data.models);
+      fillModelSelect("embed-model", data.models);
+      setText(healthOutputEl, `Loaded ${data.models.length} model(s). Current selections were preserved.`);
+    } catch (error) {
+      setText(healthOutputEl, error.message);
+    }
+  });
 }
 
 async function loadPdfFiles() {
@@ -147,7 +173,20 @@ async function refreshTasks() {
       selectedTaskId = data.tasks[0].id;
     }
     if (selectedTaskId) {
-      const selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
+      let selected;
+      try {
+        selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
+      } catch (error) {
+        selectedTaskId = data.tasks[0]?.id || null;
+        if (selectedTaskId) {
+          selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
+        } else {
+          setText(taskLogsEl, error.message);
+        }
+      }
+      if (!selected) {
+        return;
+      }
       if (selected.error) {
         setText(taskLogsEl, `${selected.log_text}\n\nERROR: ${selected.error}`);
       } else {
@@ -178,28 +217,38 @@ async function startTask(url, payload) {
 
 async function checkHealth() {
   setText(healthOutputEl, "Checking...");
-  try {
-    const data = await fetchJson("/health", { method: "GET" });
-    setText(healthOutputEl, JSON.stringify(data, null, 2));
-  } catch (error) {
-    setText(healthOutputEl, error.message);
-  }
+  return withButtonBusy("health-button", "Checking...", async () => {
+    try {
+      const data = await fetchJson("/health", { method: "GET" });
+      setText(healthOutputEl, JSON.stringify(data, null, 2));
+    } catch (error) {
+      setText(healthOutputEl, error.message);
+    }
+  });
 }
 
 async function runResearchQuery() {
-  setText(researchOutputEl, "Running query...");
-  try {
-    const data = await fetchJson("/v1/research/query", {
-      method: "POST",
-      body: JSON.stringify({
-        prompt: document.getElementById("research-prompt").value.trim(),
-        settings_overrides: currentSettings(),
-      }),
-    });
-    setText(researchOutputEl, `${data.text}\n\nCitations:\n${JSON.stringify(data.citations, null, 2)}`);
-  } catch (error) {
-    setText(researchOutputEl, error.message);
+  const prompt = document.getElementById("research-prompt").value.trim();
+  if (!prompt) {
+    setText(researchOutputEl, "Enter a corpus question before asking.");
+    return;
   }
+
+  setText(researchOutputEl, "Running query...");
+  return withButtonBusy("research-button", "Asking...", async () => {
+    try {
+      const data = await fetchJson("/v1/research/query", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt,
+          settings_overrides: currentSettings(),
+        }),
+      });
+      setText(researchOutputEl, `${data.text}\n\nCitations:\n${JSON.stringify(data.citations, null, 2)}`);
+    } catch (error) {
+      setText(researchOutputEl, error.message);
+    }
+  });
 }
 
 function renderChat() {
@@ -270,28 +319,42 @@ document.getElementById("clear-pdfs-button").addEventListener("click", () => {
   });
 });
 document.getElementById("ingest-button").addEventListener("click", () =>
-  startTask("/v1/tasks/ingest", {
-    force: document.getElementById("ingest-force").checked,
-    selected_files: selectedPdfFiles(),
-    max_workers: ingestWorkerCount(),
-    settings_overrides: currentSettings(),
+  withButtonBusy("ingest-button", "Starting...", () => {
+    return startTask("/v1/tasks/ingest", {
+      force: document.getElementById("ingest-force").checked,
+      selected_files: selectedPdfFiles(),
+      max_workers: ingestWorkerCount(),
+      settings_overrides: currentSettings(),
+    });
   })
 );
 document.getElementById("build-button").addEventListener("click", () =>
-  startTask("/v1/tasks/build-index", {
-    recreate: document.getElementById("build-recreate").checked,
-    settings_overrides: currentSettings(),
+  withButtonBusy("build-button", "Starting...", () => {
+    return startTask("/v1/tasks/build-index", {
+      recreate: document.getElementById("build-recreate").checked,
+      settings_overrides: currentSettings(),
+    });
   })
 );
-document.getElementById("synthesis-button").addEventListener("click", () =>
-  startTask("/v1/tasks/synthesis", {
-    query: document.getElementById("synthesis-query").value.trim(),
-    verbose: document.getElementById("synthesis-verbose").checked,
-    settings_overrides: currentSettings(),
-  })
-);
+document.getElementById("synthesis-button").addEventListener("click", () => {
+  const query = document.getElementById("synthesis-query").value.trim();
+  if (!query) {
+    setText(taskLogsEl, "Enter a synthesis question before starting the task.");
+    return;
+  }
+
+  return withButtonBusy("synthesis-button", "Starting...", () => {
+    return startTask("/v1/tasks/synthesis", {
+      query,
+      verbose: document.getElementById("synthesis-verbose").checked,
+      settings_overrides: currentSettings(),
+    });
+  });
+});
 document.getElementById("research-button").addEventListener("click", runResearchQuery);
-document.getElementById("chat-button").addEventListener("click", sendChatMessage);
+document.getElementById("chat-button").addEventListener("click", () =>
+  withButtonBusy("chat-button", "Sending...", sendChatMessage)
+);
 
 renderChat();
 loadPdfFiles();

@@ -56,7 +56,7 @@ The scripts read their settings from environment variables, with these defaults:
 - QDRANT_TIMEOUT: 30
 - OLLAMA_BASE_URL: http://127.0.0.1:11434
 - OLLAMA_EMBED_MODEL: nomic-embed-text
-- OLLAMA_CHAT_MODEL: qwen2.5:7b-instruct
+- OLLAMA_CHAT_MODEL: qwen3.6:35b
 - GROBID_URL: http://127.0.0.1:8070
 - CHUNK_SIZES: 2048,768,256
 - VECTOR_TOP_K: 24
@@ -68,6 +68,19 @@ The project writes generated artifacts to:
 - corpus/processed/
 - index_storage/docstore.json
 - index_storage/leaf_nodes.json
+
+## Choosing Models
+
+Basic users should start with the defaults and only change one setting at a time.
+
+- Chat model: used for model chat, corpus answers, and synthesis reports. Larger models usually produce better answers but are slower and need more memory.
+- Embedding model: used to build and search the vector index. If you change OLLAMA_EMBED_MODEL after indexing, rebuild the index so stored vectors match the selected model.
+- Retrieval options: VECTOR_TOP_K controls semantic matches, BM25_TOP_K controls keyword matches, and FUSED_TOP_K controls the final merged candidates. Keep the defaults unless you are tuning quality or speed.
+
+Make sure the selected Ollama models are installed locally before using them:
+
+    ollama pull nomic-embed-text
+    ollama pull qwen3.6:35b
 
 ## Recommended Workflow
 
@@ -189,17 +202,26 @@ Add --verbose to inspect the sub-question workflow:
 
 ## Docker Setup
 
-The docker-compose file starts three services:
+The docker-compose file is optimized for local development and starts three services:
 
 - qdrant on port 6333
 - grobid on port 8070
 - rag-api on port 8000 for both the UI and the API
 
-Bring the stack up with:
+Create the generated-data directories if they do not exist, then bring the stack up:
 
+    mkdir -p corpus index_storage
     docker compose up -d --build
 
-The API container expects Ollama to be reachable from the host machine at http://host.docker.internal:11434.
+The API container expects Ollama to run on the host at http://host.docker.internal:11434. The compose file includes host-gateway mapping for Linux Docker; Docker Desktop already supports this hostname on Windows and macOS.
+
+Useful Docker checks:
+
+    docker compose config
+    docker compose ps
+    docker compose logs -f rag-api
+
+The API image runs as a non-root user, excludes local virtualenv, PDF, and generated files via .dockerignore, and exposes a container healthcheck on /health. The source, static assets, templates, corpus, and index storage are bind-mounted so frontend and service edits are visible during local development.
 
 ## How the Pieces Fit Together
 
@@ -220,12 +242,19 @@ This separation lets you rebuild only the stage you changed instead of rerunning
 - If the UI health check returns a degraded status, check that Qdrant, Ollama, and the docstore artifacts exist.
 - If GROBID is unavailable, ingestion still works, but metadata enrichment falls back to local PDF extraction.
 - If queries fail with missing artifacts, rebuild the index after ingestion.
+- If Docker cannot write generated files on Linux, ensure corpus/ and index_storage/ are owned by your user before starting the stack.
 
 ## Validation
 
-The current automated server checks can be run with:
+The current automated server checks can be run after installing dependencies:
 
+    . .venv/bin/activate
     python -m unittest discover -s tests
+
+If local dependencies are not installed, run validation through the container:
+
+    docker compose build rag-api
+    docker compose run --rm rag-api python -m unittest discover -s tests
 
 ## Notes on Generated Files
 

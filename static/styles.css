@@ -56,7 +56,9 @@ button {
 
 .lede,
 .muted,
-.action-card p {
+.action-card p,
+label small,
+.guide-note {
   color: #94a3b8;
 }
 
@@ -91,6 +93,39 @@ label,
   gap: 8px;
 }
 
+label small {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.guide-card {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(37, 99, 235, 0.08));
+  border: 1px solid #1e3a8a;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.guide-card h3 {
+  margin: 0 0 10px;
+}
+
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.guide-grid p,
+.guide-note {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.guide-note {
+  margin-top: 12px;
+}
+
 input,
 select,
 textarea {
@@ -117,6 +152,12 @@ button {
 
 button:hover {
   filter: brightness(1.08);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.35) brightness(0.8);
+  opacity: 0.75;
 }
 
 .action-stack {

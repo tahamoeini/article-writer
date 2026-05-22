@@ -27,6 +27,27 @@
           <h2>Runtime settings</h2>
           <button id="models-button" type="button">Load Ollama models</button>
         </div>
+        <div class="guide-card" aria-label="Model selection guide">
+          <h3>Beginner model guide</h3>
+          <div class="guide-grid">
+            <p>
+              <strong>Chat model</strong> writes answers, chat replies, and synthesis reports.
+              Larger models usually reason better but respond more slowly.
+            </p>
+            <p>
+              <strong>Embedding model</strong> builds and searches the index. If you change it,
+              rebuild the index so stored vectors match the selected model.
+            </p>
+            <p>
+              <strong>Retrieval options</strong> control semantic, keyword, and final combined
+              matches. Basic users should keep the defaults unless tuning quality.
+            </p>
+          </div>
+          <p class="guide-note">
+            Tip: pull models in Ollama before selecting them, for example
+            <code>ollama pull nomic-embed-text</code>.
+          </p>
+        </div>
         <div class="settings-grid">
           <label>
             Ollama base URL
@@ -51,30 +72,36 @@
           <label>
             Chunk sizes
             <input id="chunk-sizes" value="{{ defaults.chunk_sizes }}" />
+            <small>Advanced indexing sizes for parent, middle, and leaf chunks.</small>
           </label>
           <label>
             Vector top-k
             <input id="vector-top-k" value="{{ defaults.vector_top_k }}" />
+            <small>Semantic matches from Qdrant. Keep the default to start.</small>
           </label>
           <label>
             BM25 top-k
             <input id="bm25-top-k" value="{{ defaults.bm25_top_k }}" />
+            <small>Keyword matches from the local text index. Keep the default to start.</small>
           </label>
           <label>
             Fused top-k
             <input id="fused-top-k" value="{{ defaults.fused_top_k }}" />
+            <small>Final combined matches passed to the answer model.</small>
           </label>
           <label>
             Chat model
             <select id="chat-model">
               <option value="{{ defaults.ollama_chat_model }}">{{ defaults.ollama_chat_model }}</option>
             </select>
+            <small>Used for chat, corpus answers, and synthesis writing.</small>
           </label>
           <label>
             Embedding model
             <select id="embed-model">
               <option value="{{ defaults.ollama_embed_model }}">{{ defaults.ollama_embed_model }}</option>
             </select>
+            <small>Must match the model used when the index was built.</small>
           </label>
         </div>
       </section>
