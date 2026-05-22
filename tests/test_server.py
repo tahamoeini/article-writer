@@ -56,18 +56,17 @@ class ServerTests(unittest.TestCase):
                     "settings_overrides": {"OLLAMA_CHAT_MODEL": "qwen-test"},
                 },
             )
+            task = self.wait_for_task(response.json()["id"])
 
         self.assertEqual(response.status_code, 200)
-        task = self.wait_for_task(response.json()["id"])
         self.assertEqual(task["status"], "completed")
         self.assertEqual(task["result"], [2, 1])
         self.assertIn("force=True", task["log_text"])
         self.assertIn("qwen-test", task["log_text"])
 
     def test_query_endpoint_returns_text_and_citations(self):
-        fake_response = SimpleNamespace(
-            __str__=lambda self: "Grounded answer",
-            source_nodes=[
+        class FakeResponse:
+            source_nodes = [
                 SimpleNamespace(
                     score=0.9,
                     node=SimpleNamespace(
@@ -80,8 +79,12 @@ class ServerTests(unittest.TestCase):
                         }
                     ),
                 )
-            ],
-        )
+            ]
+
+            def __str__(self):
+                return "Grounded answer"
+
+        fake_response = FakeResponse()
         fake_engine = SimpleNamespace(query=lambda prompt: fake_response)
 
         with patch.object(server, "get_engine", return_value=fake_engine):

@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
     qdrant-client \
     pymupdf \
     fastapi \
+    jinja2 \
     uvicorn \
     pydantic \
     requests
