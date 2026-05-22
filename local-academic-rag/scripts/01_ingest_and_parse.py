@@ -1,21 +1,17 @@
 import os
 import fitz  # PyMuPDF
 import json
-import requests
 from pathlib import Path
-import xml.etree.ElementTree as ET
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PDF_DIR = BASE_DIR / "corpus" / "pdfs"
 OUTPUT_DIR = BASE_DIR / "corpus" / "processed"
-GROBID_URL = "http://localhost:8070/api/processHeaderDocument"
 
 def resolve_output_dir() -> Path:
     preferred_dir = OUTPUT_DIR
-    preferred_dir.mkdir(parents=True, exist_ok=True)
-
     probe_path = preferred_dir / ".write_test"
     try:
+        preferred_dir.mkdir(parents=True, exist_ok=True)
         with open(probe_path, "w", encoding="utf-8") as probe_file:
             probe_file.write("")
         probe_path.unlink(missing_ok=True)
@@ -28,9 +24,9 @@ def resolve_output_dir() -> Path:
 
 def extract_basic_metadata(pdf_path: Path):
     """Fallback parser to grab author/year if GROBID metadata is missing."""
-    doc = fitz.open(pdf_path)
-    meta = doc.metadata
-    first_page_text = doc[0].get_text("text")[:1000]
+    with fitz.open(pdf_path) as doc:
+        meta = doc.metadata
+        first_page_text = doc[0].get_text("text")[:1000]
     
     # Try to extract a plausible 4-digit year from the front text
     import re
@@ -45,7 +41,6 @@ def extract_basic_metadata(pdf_path: Path):
     }
 
 def process_corpus():
-    metadata_registry = {}
     print("Starting academic document preprocessing pipeline...")
     output_dir = resolve_output_dir()
     if output_dir != OUTPUT_DIR:
@@ -57,29 +52,29 @@ def process_corpus():
             base_meta = extract_basic_metadata(pdf_path)
 
             # Open and map page boundaries to match chunks back to hard page numbers
-            doc = fitz.open(pdf_path)
             structured_sections = []
 
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                text = page.get_text("blocks") # Keeps structural paragraphs together
+            with fitz.open(pdf_path) as doc:
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    text = page.get_text("blocks") # Keeps structural paragraphs together
 
-                for block_idx, b in enumerate(text):
-                    block_text = b[4].strip()
-                    if len(block_text) > 40: # Skip noise, headers, footers
-                        structured_sections.append({
-                            "text": block_text,
-                            "page": page_num + 1,
-                            "paragraph_index": block_idx,
-                            "metadata": base_meta
-                        })
+                    for block_idx, b in enumerate(text):
+                        block_text = b[4].strip()
+                        if len(block_text) > 40: # Skip noise, headers, footers
+                            structured_sections.append({
+                                "text": block_text,
+                                "page": page_num + 1,
+                                "paragraph_index": block_idx,
+                                "metadata": base_meta
+                            })
 
             # Write clean json structure out for our indexer
             output_stem = pdf_path.stem.lstrip("-") or "document"
             out_json_path = output_dir / f"{output_stem}.json"
             out_json_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_json_path, "w") as f:
-                json.dump(structured_sections, f, indent=2)
+            with open(out_json_path, "w", encoding="utf-8") as f:
+                json.dump(structured_sections, f, indent=2, ensure_ascii=False)
         except Exception as exc:
             print(f"Skipping unreadable file: {pdf_path.name} ({exc})")
             continue
