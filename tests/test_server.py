@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from scripts import build_index
 from scripts import ingest
 from scripts import server
+from scripts import synthesis
 
 MAX_TASK_WAIT_ITERATIONS = 40
 TASK_WAIT_SECONDS = 0.05
@@ -271,6 +272,55 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(task["result"], "synthesis-complete")
         self.assertIn("query=cancer treatment advances", task["log_text"])
         self.assertIn("verbose=True", task["log_text"])
+
+    def test_synthesis_prints_progress_updates_while_waiting_for_model(self):
+        query_started = threading.Event()
+        allow_finish = threading.Event()
+        result_holder = {}
+        captured_output = StringIO()
+
+        fake_settings = SimpleNamespace(
+            ollama_chat_model="qwen-synth",
+            ollama_base_url="http://ollama",
+            create_ollama_client=lambda timeout=None: SimpleNamespace(),
+            create_ollama_async_client=lambda timeout=None: SimpleNamespace(),
+        )
+
+        class FakeMapReduceEngine:
+            def query(self, broad_query):
+                query_started.set()
+                if not allow_finish.wait(timeout=2):
+                    raise RuntimeError("Timed out waiting to finish synthesis query.")
+                return f"final report for {broad_query}"
+
+        def run_synthesis():
+            result_holder["value"] = synthesis.run_global_literature_review(
+                "novel therapies",
+                status_interval_seconds=0.01,
+            )
+
+        with (
+            patch.object(synthesis.RuntimeSettings, "from_env", return_value=fake_settings),
+            patch.object(synthesis, "get_advanced_query_engine", return_value=SimpleNamespace()),
+            patch.object(synthesis, "Ollama", return_value=SimpleNamespace()),
+            patch.object(synthesis.SubQuestionQueryEngine, "from_defaults", return_value=FakeMapReduceEngine()),
+            patch("sys.stdout", captured_output),
+        ):
+            worker = threading.Thread(target=run_synthesis)
+            worker.start()
+            self.assertTrue(query_started.wait(timeout=2))
+            time.sleep(0.05)
+            allow_finish.set()
+            worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result_holder["value"], "final report for novel therapies")
+        output = captured_output.getvalue()
+        self.assertIn("Loading runtime settings...", output)
+        self.assertIn("Loading query engine and retrieval stack...", output)
+        self.assertIn("Submitting the synthesis query to the model...", output)
+        self.assertIn("Synthesis is still running", output)
+        self.assertIn("Synthesis query completed. Rendering final report...", output)
 
     def test_concurrent_tasks_run_one_at_a_time(self):
         first_ready = threading.Event()
