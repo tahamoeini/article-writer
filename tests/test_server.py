@@ -322,6 +322,61 @@ class ServerTests(unittest.TestCase):
         self.assertIn("Synthesis is still running", output)
         self.assertIn("Synthesis query completed. Rendering final report...", output)
 
+    def test_synthesis_prints_progress_updates_while_loading_query_engine(self):
+        query_engine_started = threading.Event()
+        allow_query_engine = threading.Event()
+        result_holder = {}
+        captured_output = StringIO()
+
+        fake_settings = SimpleNamespace(
+            ollama_chat_model="qwen-synth",
+            ollama_base_url="http://ollama",
+            create_ollama_client=lambda timeout=None: SimpleNamespace(),
+            create_ollama_async_client=lambda timeout=None: SimpleNamespace(),
+        )
+
+        class FakeMapReduceEngine:
+            def query(self, broad_query):
+                return f"final report for {broad_query}"
+
+        def fake_get_advanced_query_engine(settings_overrides=None):
+            query_engine_started.set()
+            if not allow_query_engine.wait(timeout=2):
+                raise RuntimeError("Timed out waiting to finish query engine loading.")
+            return SimpleNamespace()
+
+        def run_synthesis():
+            result_holder["value"] = synthesis.run_global_literature_review(
+                "future consciousness",
+                status_interval_seconds=0.01,
+            )
+
+        with (
+            patch.object(synthesis.RuntimeSettings, "from_env", return_value=fake_settings),
+            patch.object(
+                synthesis,
+                "get_advanced_query_engine",
+                side_effect=fake_get_advanced_query_engine,
+            ),
+            patch.object(synthesis, "Ollama", return_value=SimpleNamespace()),
+            patch.object(synthesis.SubQuestionQueryEngine, "from_defaults", return_value=FakeMapReduceEngine()),
+            patch("sys.stdout", captured_output),
+        ):
+            worker = threading.Thread(target=run_synthesis)
+            worker.start()
+            self.assertTrue(query_engine_started.wait(timeout=2))
+            time.sleep(0.05)
+            allow_query_engine.set()
+            worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result_holder["value"], "final report for future consciousness")
+        output = captured_output.getvalue()
+        self.assertIn("Loading query engine and retrieval stack...", output)
+        self.assertIn("Query engine and retrieval stack are still loading", output)
+        self.assertIn("Connecting to the Ollama chat model...", output)
+        self.assertIn("Synthesis query completed. Rendering final report...", output)
+
     def test_concurrent_tasks_run_one_at_a_time(self):
         first_ready = threading.Event()
         first_release = threading.Event()

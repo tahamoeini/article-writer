@@ -18,6 +18,44 @@ except ModuleNotFoundError:
 HEARTBEAT_JOIN_TIMEOUT_SECONDS = 0.2
 
 
+def _run_with_periodic_status(
+    action,
+    *,
+    waiting_message: str,
+    status_interval_seconds: float,
+):
+    if status_interval_seconds <= 0:
+        return action()
+
+    result_holder = {}
+    error_holder = {}
+    completed = Event()
+
+    def run_action() -> None:
+        try:
+            result_holder["value"] = action()
+        except BaseException as exc:
+            error_holder["error"] = exc
+            error_holder["traceback"] = exc.__traceback__
+        finally:
+            completed.set()
+
+    worker = Thread(target=run_action, daemon=True)
+    worker.start()
+    started_at = time.monotonic()
+
+    while not completed.wait(status_interval_seconds):
+        elapsed_seconds = int(time.monotonic() - started_at)
+        print(f"{waiting_message} ({elapsed_seconds}s elapsed)...")
+
+    worker.join(timeout=HEARTBEAT_JOIN_TIMEOUT_SECONDS)
+
+    if "error" in error_holder:
+        raise error_holder["error"].with_traceback(error_holder["traceback"])
+
+    return result_holder["value"]
+
+
 def run_global_literature_review(
     broad_query: str,
     verbose: bool = False,
@@ -33,7 +71,11 @@ def run_global_literature_review(
     settings = RuntimeSettings.from_env(settings_overrides)
     print(f"Using chat model: {settings.ollama_chat_model}")
     print("Loading query engine and retrieval stack...")
-    base_engine = get_advanced_query_engine(settings_overrides=settings_overrides)
+    base_engine = _run_with_periodic_status(
+        lambda: get_advanced_query_engine(settings_overrides=settings_overrides),
+        waiting_message="Query engine and retrieval stack are still loading",
+        status_interval_seconds=status_interval_seconds,
+    )
     print("Connecting to the Ollama chat model...")
     llm = Ollama(
         model=settings.ollama_chat_model,
