@@ -1,0 +1,207 @@
+## 1) Model 1 search bank
+
+**Core stream:** future consciousness → strategic foresight → digital bricolage → venture creation under institutional voids.
+Use these to maximize recall first, then tighten with context terms. Strategic foresight commonly appears with scenario planning, trend analysis, and horizon scanning, while digital bricolage and resource bricolage are established entrepreneurship/digital transformation terms. ([ScienceDirect][2])
+
+```text
+future consciousness
+futures consciousness
+future orientation
+temporal cognition
+strategic foresight
+horizon scanning
+scenario planning
+digital bricolage
+entrepreneurial bricolage
+resource bricolage
+institutional voids
+resource-constrained entrepreneurship
+bootstrapping
+venture creation
+new venture creation
+
+"future consciousness" AND entrepreneurship
+"future consciousness" AND "strategic foresight"
+"future consciousness" AND "temporal cognition"
+"strategic foresight" AND bricolage
+"strategic foresight" AND "horizon scanning"
+"digital bricolage" AND entrepreneurship
+"digital bricolage" AND startup
+"entrepreneurial bricolage" AND innovation
+"institutional voids" AND entrepreneurship
+"institutional voids" AND bricolage
+"resource-constrained" AND venture
+"future orientation" AND venture creation
+"temporal focus" AND entrepreneurship
+"future consciousness" AND "institutional voids"
+"strategic foresight" AND "resource scarcity"
+
+"future consciousness" AND "strategic foresight" AND entrepreneurship
+"future consciousness" AND "strategic foresight" AND bricolage
+"future consciousness" AND "digital bricolage" AND entrepreneurship
+"strategic foresight" AND "digital bricolage" AND "institutional voids"
+"strategic foresight" AND "horizon scanning" AND entrepreneurship
+"digital bricolage" AND "resource-constrained" AND venture
+"entrepreneurial bricolage" AND "institutional voids" AND entrepreneurship
+"future orientation" AND "resource scarcity" AND venture creation
+"temporal cognition" AND "new venture" AND innovation
+"future consciousness" AND "scenario planning" AND entrepreneurship
+
+"future consciousness" AND "strategic foresight" AND "digital bricolage" AND entrepreneurship
+"future consciousness" AND "strategic foresight" AND "institutional voids" AND venture creation
+"strategic foresight" AND "horizon scanning" AND "digital bricolage" AND startup
+"digital bricolage" AND "institutional voids" AND "resource-constrained entrepreneurship" AND innovation
+"future orientation" AND "temporal cognition" AND "venture creation" AND "resource scarcity"
+
+"future consciousness" AND "strategic foresight" AND "digital bricolage" AND "institutional voids" AND entrepreneurship
+"strategic foresight" AND "horizon scanning" AND "digital bricolage" AND "resource-constrained venture creation" AND "isolated markets"
+"future orientation" AND "temporal cognition" AND "entrepreneurial bricolage" AND "institutional voids" AND startup
+```
+
+## 2) Model 2 search bank
+
+**Core stream:** responsible AI-by-design → trust orchestration → platform resilience under shocks.
+For retrieval, do not rely only on “trust orchestration.” Search the adjacent literature on responsible AI governance, algorithmic legitimacy, human-in-the-loop oversight, platform governance, accountability, transparency, and trust. Those are the terms that actually show up in the literature. ([ScienceDirect][3])
+
+```text
+responsible AI
+responsible AI governance
+ethical AI
+trust
+legitimacy
+algorithmic legitimacy
+platform governance
+platform resilience
+human-in-the-loop
+human oversight
+transparency
+accountability
+audit trails
+data minimization
+
+"responsible AI" AND trust
+"responsible AI" AND governance
+"responsible AI" AND transparency
+"responsible AI" AND accountability
+"algorithmic legitimacy" AND trust
+"algorithmic legitimacy" AND governance
+"platform governance" AND trust
+"platform governance" AND resilience
+"human-in-the-loop" AND responsible AI
+"human oversight" AND algorithmic decision-making
+"audit trails" AND transparency
+"data minimization" AND governance
+"stakeholder trust" AND platform
+"platform entrepreneurship" AND resilience
+"trust" AND legitimacy AND platform
+
+"responsible AI" AND trust AND governance
+"responsible AI" AND transparency AND accountability
+"algorithmic legitimacy" AND trust AND platform
+"human-in-the-loop" AND transparency AND accountability
+"platform governance" AND trust AND resilience
+"responsible AI" AND "platform entrepreneurship" AND resilience
+"stakeholder trust" AND governance AND regulation
+"algorithmic legitimacy" AND accountability AND transparency
+"responsible AI" AND "human oversight" AND trust
+"platform governance" AND "algorithmic legitimacy" AND trust
+
+"responsible AI" AND trust AND governance AND resilience
+"algorithmic legitimacy" AND trust AND platform AND governance
+"human-in-the-loop" AND accountability AND transparency AND responsible AI
+"platform entrepreneurship" AND resilience AND trust AND governance
+"stakeholder trust" AND legitimacy AND platform AND regulation
+
+"responsible AI" AND trust AND governance AND resilience AND platform
+"algorithmic legitimacy" AND stakeholder trust AND platform governance AND accountability AND transparency
+"human-in-the-loop" AND responsible AI AND platform resilience AND governance AND trust
+```
+
+## 3) Model 3 search bank
+
+**Core stream:** entrepreneurial cognition → AI-augmented dynamic capabilities → strategic adaptation.
+This stream is closest to current work on AI and dynamic capabilities, plus entrepreneurial cognition, cognitive offloading, algorithmic trust calibration, and strategic adaptation under uncertainty. ([ScienceDirect][4])
+
+```text
+entrepreneurial cognition
+dynamic capabilities
+strategic adaptation
+AI augmentation
+cognitive offloading
+algorithmic trust
+opportunity judgment
+regulatory sandbox
+policy uncertainty
+generative AI
+AI dependency
+AI reliance
+strategic pivoting
+business model resilience
+
+"entrepreneurial cognition" AND "dynamic capabilities"
+"entrepreneurial cognition" AND AI
+"algorithmic trust" AND entrepreneurship
+"cognitive offloading" AND AI
+"generative AI" AND entrepreneurship
+"dynamic capabilities" AND adaptation
+"dynamic capabilities" AND uncertainty
+"regulatory sandbox" AND innovation
+"policy uncertainty" AND strategic adaptation
+"AI dependency" AND cognition
+"opportunity judgment" AND AI
+"strategic pivoting" AND entrepreneurship
+"business model resilience" AND AI
+"founder cognition" AND dynamic capabilities
+"AI-augmented" AND "dynamic capabilities"
+
+"entrepreneurial cognition" AND "dynamic capabilities" AND adaptation
+"algorithmic trust" AND "dynamic capabilities" AND entrepreneurship
+"cognitive offloading" AND AI AND judgment
+"generative AI" AND "strategic adaptation" AND venture
+"regulatory sandbox" AND "policy uncertainty" AND adaptation
+"AI dependency" AND "dynamic capabilities" AND entrepreneurship
+"opportunity judgment" AND "AI-augmented" AND adaptation
+"founder cognition" AND "strategic pivoting" AND AI
+
+"entrepreneurial cognition" AND "dynamic capabilities" AND "strategic adaptation"
+"AI-augmented" AND "dynamic capabilities" AND "strategic adaptation"
+"cognitive offloading" AND "algorithmic trust" AND entrepreneurship
+"generative AI" AND "regulatory sandbox" AND adaptation
+"policy uncertainty" AND "dynamic capabilities" AND venture
+
+"entrepreneurial cognition" AND "AI-augmented" AND "dynamic capabilities" AND "strategic adaptation"
+"generative AI" AND cognition AND "dynamic capabilities" AND entrepreneurship
+"algorithmic trust" AND "cognitive offloading" AND "strategic adaptation" AND uncertainty
+"regulatory sandbox" AND "policy uncertainty" AND "dynamic capabilities" AND entrepreneurship
+"founder cognition" AND AI AND "business model resilience" AND adaptation
+```
+
+## 4) Cross-model “high-yield” combinations
+
+These are the ones most likely to surface the exact kind of papers you need, because they connect the mechanism to the context instead of just spraying keywords at the wall.
+
+```text
+"future consciousness" AND bricolage
+"future consciousness" AND entrepreneurship AND innovation
+"strategic foresight" AND entrepreneurship AND uncertainty
+"digital bricolage" AND "resource-constrained" AND entrepreneurship
+"institutional voids" AND bricolage AND entrepreneurship
+
+"responsible AI" AND legitimacy AND platform
+"algorithmic legitimacy" AND trust AND governance
+"human-in-the-loop" AND responsible AI AND governance
+"platform governance" AND resilience AND trust
+"stakeholder trust" AND algorithmic accountability
+
+"entrepreneurial cognition" AND "dynamic capabilities" AND AI
+"AI-augmented" AND "dynamic capabilities" AND entrepreneurship
+"cognitive offloading" AND generative AI
+"regulatory sandbox" AND "strategic adaptation"
+"policy uncertainty" AND entrepreneurship AND AI
+```
+
+
+
+
+
+"future consciousness" OR "futures consciousness" OR "future orientation" OR "temporal cognition" OR "strategic foresight" OR "horizon scanning" OR "scenario planning" OR "digital bricolage" OR "entrepreneurial bricolage" OR "resource bricolage" OR "institutional voids" OR "resource-constrained entrepreneurship" OR "bootstrapping" OR "venture creation" OR "new venture creation" OR "responsible AI" OR "responsible AI governance" OR "ethical AI" OR "trust" OR "legitimacy" OR "algorithmic legitimacy" OR "platform governance" OR "platform resilience" OR "human-in-the-loop" OR "human oversight" OR "transparency" OR "accountability" OR "audit trails" OR "data minimization" OR "entrepreneurial cognition" OR "dynamic capabilities" OR "strategic adaptation" OR "AI augmentation" OR "cognitive offloading" OR "algorithmic trust" OR "opportunity judgment" OR "regulatory sandbox" OR "policy uncertainty" OR "generative AI" OR "AI dependency" OR "AI reliance" OR "strategic pivoting" OR "business model resilience"
