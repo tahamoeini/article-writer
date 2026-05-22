@@ -41,6 +41,10 @@ Install the Python dependencies before running the scripts or tests:
     . .venv/bin/activate
     python -m pip install -r requirements.txt
 
+On Windows (PowerShell):
+
+    .venv\\Scripts\\Activate.ps1
+
 ## Environment Variables
 
 The scripts read their settings from environment variables, with these defaults:
