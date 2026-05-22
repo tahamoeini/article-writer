@@ -6,6 +6,7 @@ from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import get_response_synthesizer
 from llama_index.core.retrievers import AutoMergingRetriever, QueryFusionRetriever
+from llama_index.core.schema import BaseNode
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.llms.ollama import Ollama
 from llama_index.retrievers.bm25 import BM25Retriever
@@ -52,19 +53,41 @@ def load_bm25_retriever(settings: RuntimeSettings, docstore: SimpleDocumentStore
         return bm25_retriever
 
     # Fallback: build from leaf nodes (expensive, but ensures backward compatibility)
-    leaf_nodes = load_leaf_nodes(settings, docstore)
+    leaf_node_ids = load_leaf_node_ids(settings)
+    leaf_nodes = hydrate_leaf_nodes(docstore, leaf_node_ids)
+    if not leaf_nodes:
+        leaf_nodes = load_leaf_nodes(settings, docstore)
     return BM25Retriever.from_defaults(nodes=leaf_nodes, similarity_top_k=settings.bm25_top_k)
 
 
-def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
+def load_leaf_node_ids(settings: RuntimeSettings) -> list[str]:
     if settings.leaf_nodes_path.exists():
         with settings.leaf_nodes_path.open("r", encoding="utf-8") as handle:
-            node_ids = json.load(handle)
-        nodes = [docstore.docs[node_id] for node_id in node_ids if node_id in docstore.docs]
-        if nodes:
-            return nodes
+            return [str(node_id) for node_id in json.load(handle)]
+    return []
 
-    return [node for node in docstore.docs.values() if len(getattr(node, "text", "")) <= 500]
+
+def hydrate_leaf_nodes(docstore: SimpleDocumentStore, node_ids: list[str]) -> list[BaseNode]:
+    nodes: list[BaseNode] = []
+    for node_id in node_ids:
+        node = docstore.get_node(node_id, raise_error=False)
+        if isinstance(node, BaseNode):
+            nodes.append(node)
+    return nodes
+
+
+def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
+    node_ids = load_leaf_node_ids(settings)
+    nodes = hydrate_leaf_nodes(docstore, node_ids)
+    if nodes:
+        return nodes
+
+    fallback_nodes: list[BaseNode] = []
+    for node_id in docstore.docs:
+        node = docstore.get_node(node_id, raise_error=False)
+        if isinstance(node, BaseNode) and len(getattr(node, "text", "")) <= 500:
+            fallback_nodes.append(node)
+    return fallback_nodes
 
 
 def _cache_key(settings_overrides: Mapping[str, Any] | None = None) -> tuple[tuple[str, str], ...]:

@@ -8,7 +8,7 @@ from typing import Mapping
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
-from llama_index.core.schema import MetadataMode
+from llama_index.core.schema import BaseNode, MetadataMode
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -227,6 +227,15 @@ def persist_bm25_index(leaf_nodes, settings: RuntimeSettings) -> None:
     print(f"BM25 index persisted to {settings.bm25_index_path}")
 
 
+def hydrate_docstore_nodes(docstore: SimpleDocumentStore, node_ids: list[str]) -> list[BaseNode]:
+    hydrated_nodes: list[BaseNode] = []
+    for node_id in node_ids:
+        node = docstore.get_node(node_id, raise_error=False)
+        if isinstance(node, BaseNode):
+            hydrated_nodes.append(node)
+    return hydrated_nodes
+
+
 def build_hierarchical_index(
     recreate: bool = False,
     settings_overrides: Mapping[str, str] | None = None,
@@ -314,11 +323,17 @@ def build_hierarchical_index(
         else:
             docstore = SimpleDocumentStore()
 
-        # Add to docstore
+        # Add to persistent docstore
         docstore.add_documents(nodes)
 
+        batch_docstore = SimpleDocumentStore()
+        batch_docstore.add_documents(nodes)
+
         # Phase 3: Embed and upsert vectors
-        storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
+        storage_context = StorageContext.from_defaults(
+            vector_store=vector_store,
+            docstore=batch_docstore,
+        )
         print(f"{batch_label}: embedding and indexing {len(leaf_nodes)} leaf node(s)...")
         VectorStoreIndex(
             leaf_nodes,
@@ -336,7 +351,7 @@ def build_hierarchical_index(
         print(f"{batch_label}: docstore flushed to disk ({len(all_leaf_node_ids)} leaf nodes so far).")
 
         # Free batch memory
-        del documents, nodes, leaf_nodes, storage_context, docstore
+        del documents, nodes, leaf_nodes, storage_context, batch_docstore, docstore
 
     if not all_leaf_node_ids:
         raise ValueError(f"Processed files exist in {settings.processed_dir} but contain no indexable text.")
@@ -353,9 +368,7 @@ def build_hierarchical_index(
 
     # Build and persist BM25 index from all leaf nodes
     docstore = SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
-    all_leaf_nodes = [
-        docstore.docs[nid] for nid in all_leaf_node_ids if nid in docstore.docs
-    ]
+    all_leaf_nodes = hydrate_docstore_nodes(docstore, all_leaf_node_ids)
     persist_bm25_index(all_leaf_nodes, settings)
 
     print_overall_progress(100, "index build complete")

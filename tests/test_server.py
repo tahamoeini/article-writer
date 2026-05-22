@@ -5,7 +5,7 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 from llama_index.core.schema import TextNode
@@ -202,7 +202,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual([document.doc_id for document in documents], ["alpha:1", "zeta:1"])
 
     def test_build_index_prints_overall_progress_and_worker_count(self):
-        fake_node = SimpleNamespace(node_id="leaf-1")
+        fake_node = TextNode(id_="leaf-1", text="Hello world")
         captured_output = StringIO()
 
         with TemporaryDirectory() as tmp:
@@ -238,17 +238,25 @@ class ServerTests(unittest.TestCase):
                 patch.object(build_index, "SimpleDocumentStore") as docstore_class,
                 patch.object(build_index, "StorageContext") as storage_context_class,
                 patch.object(build_index, "VectorStoreIndex"),
-                patch.object(build_index, "persist_bm25_index"),
+                patch.object(build_index, "persist_bm25_index") as persist_bm25_index,
                 patch("sys.stdout", captured_output),
             ):
-                docstore_class.return_value.add_documents.return_value = None
-                docstore_class.return_value.persist.return_value = None
-                docstore_class.return_value.docs = {"leaf-1": fake_node}
+                aggregate_docstore = MagicMock()
+                aggregate_docstore.add_documents.return_value = None
+                aggregate_docstore.persist.return_value = None
+                batch_docstore = MagicMock()
+                batch_docstore.add_documents.return_value = None
+                final_docstore = MagicMock()
+                final_docstore.get_node.return_value = fake_node
+                docstore_class.side_effect = [aggregate_docstore, batch_docstore]
+                docstore_class.from_persist_path.return_value = final_docstore
                 storage_context_class.from_defaults.return_value = SimpleNamespace()
 
                 result = build_index.build_hierarchical_index(max_workers=4)
 
         self.assertEqual(result, (1, 1))
+        self.assertIs(storage_context_class.from_defaults.call_args.kwargs["docstore"], batch_docstore)
+        persist_bm25_index.assert_called_once_with([fake_node], fake_settings)
         output = captured_output.getvalue()
         self.assertIn("Requested workers/processes: 4", output)
         self.assertIn("Overall index progress: 0% done, 100% remaining", output)
@@ -313,6 +321,27 @@ class ServerTests(unittest.TestCase):
             )
 
         self.assertEqual(loaded_retriever.similarity_top_k, 5)
+
+    def test_load_bm25_retriever_fallback_hydrates_manifest_ids(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            leaf_nodes_path = tmp_path / "leaf_nodes.json"
+            leaf_nodes_path.write_text('["leaf-1"]', encoding="utf-8")
+            fake_settings = SimpleNamespace(
+                bm25_index_path=tmp_path / "missing_bm25_index",
+                leaf_nodes_path=leaf_nodes_path,
+                bm25_top_k=5,
+            )
+            fake_docstore = MagicMock()
+            fake_docstore.get_node.return_value = TextNode(id_="leaf-1", text="hello world")
+
+            with patch.object(query_engine.BM25Retriever, "from_defaults", return_value=SimpleNamespace()) as from_defaults:
+                query_engine.load_bm25_retriever(fake_settings, fake_docstore)
+
+        hydrated_nodes = from_defaults.call_args.kwargs["nodes"]
+        self.assertEqual(len(hydrated_nodes), 1)
+        self.assertIsInstance(hydrated_nodes[0], TextNode)
+        self.assertEqual(hydrated_nodes[0].node_id, "leaf-1")
 
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
