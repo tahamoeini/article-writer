@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
@@ -10,9 +11,28 @@ from llama_index.embeddings.ollama import OllamaEmbedding
 
 PROCESSED_DIR = Path("./corpus/processed")
 
+
+def load_paragraphs(json_file: Path):
+    for encoding in ("utf-8", "utf-8-sig", "cp1252"):
+        try:
+            with open(json_file, "r", encoding=encoding) as f:
+                return json.load(f)
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeDecodeError("unknown", b"", 0, 1, f"Unable to decode {json_file}")
+
 def build_hierarchical_index():
     # Initialize connection to local Qdrant instance
-    client = QdrantClient(host="localhost", port=6333)
+    qdrant_host = os.getenv("QDRANT_HOST", "127.0.0.1")
+    qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
+    qdrant_api_key = os.getenv("QDRANT_API_KEY")
+    client = QdrantClient(
+        host=qdrant_host,
+        port=qdrant_port,
+        api_key=qdrant_api_key,
+        timeout=30,
+        trust_env=False,
+    )
     
     # Configure collection for standard Nomic Embed text dimensions (768)
     if not client.collection_exists("academic_corpus"):
@@ -25,14 +45,16 @@ def build_hierarchical_index():
     docstore = SimpleDocumentStore()
     
     # Instantiate embedding configuration natively using local Ollama engine
-    embed_model = OllamaEmbedding(model_name="nomic-embed-text", base_url="http://localhost:11434")
+    embed_model = OllamaEmbedding(
+        model_name=os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+        base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+    )
     
     llama_docs = []
     
     # Process structured intermediate outputs
     for json_file in PROCESSED_DIR.glob("*.json"):
-        with open(json_file, "r") as f:
-            paragraphs = json.load(f)
+        paragraphs = load_paragraphs(json_file)
             
         for p in paragraphs:
             # Build LlamaIndex document object injecting deterministic citations directly into payloads
@@ -48,8 +70,9 @@ def build_hierarchical_index():
             )
             llama_docs.append(doc)
 
-    # Segment documents into Parent (2048), Mid (512), and Child Leaf (128) layers
-    node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=[2048, 512, 128])
+    # Segment documents into Parent, Mid, and Child Leaf layers.
+    # Keep leaf chunk size above metadata length to avoid parser failures.
+    node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=[2048, 768, 256])
     nodes = node_parser.get_nodes_from_documents(llama_docs)
     leaf_nodes = get_leaf_nodes(nodes)
     

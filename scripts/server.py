@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
-from query_engine import get_advanced_query_engine
+from scripts.query_engine import get_advanced_query_engine
 
 app = FastAPI(title="Local Academic RAG Engine API")
 engine = get_advanced_query_engine()
@@ -12,7 +12,6 @@ class ResearchQuery(BaseModel):
 @app.post("/v1/research/query")
 async def execute_query(payload: ResearchQuery):
     response = engine.query(payload.prompt)
-    
     return {
         "text": str(response),
         "citations": [
