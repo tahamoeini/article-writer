@@ -1,6 +1,7 @@
 import argparse
 import json
 from pathlib import Path
+from typing import Mapping
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
@@ -128,8 +129,11 @@ def persist_leaf_nodes(leaf_nodes, settings: RuntimeSettings) -> None:
         json.dump(payload, handle, indent=2)
 
 
-def build_hierarchical_index(recreate: bool = False) -> tuple[int, int]:
-    settings = RuntimeSettings.from_env()
+def build_hierarchical_index(
+    recreate: bool = False,
+    settings_overrides: Mapping[str, str] | None = None,
+) -> tuple[int, int]:
+    settings = RuntimeSettings.from_env(settings_overrides)
     settings.ensure_runtime_dirs()
 
     vector_store = ensure_collection(settings, recreate=recreate)

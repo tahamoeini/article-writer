@@ -1,4 +1,5 @@
 import json
+from typing import Mapping
 
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -53,8 +54,10 @@ def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
     return [node for node in docstore.docs.values() if len(getattr(node, "text", "")) <= 500]
 
 
-def get_advanced_query_engine() -> CitationAwareQueryEngine:
-    settings = RuntimeSettings.from_env()
+def get_advanced_query_engine(
+    settings_overrides: Mapping[str, str] | None = None,
+) -> CitationAwareQueryEngine:
+    settings = RuntimeSettings.from_env(settings_overrides)
     docstore = load_docstore(settings)
     client = settings.create_qdrant_client()
     if not client.collection_exists(settings.collection_name):

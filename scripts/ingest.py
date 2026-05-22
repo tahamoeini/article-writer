@@ -3,6 +3,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Mapping
 
 try:
     from scripts.config import RuntimeSettings
@@ -156,8 +157,11 @@ def process_pdf(pdf_path: Path, settings: RuntimeSettings) -> Path:
     return output_path
 
 
-def process_corpus(force: bool = False) -> tuple[int, int]:
-    settings = RuntimeSettings.from_env()
+def process_corpus(
+    force: bool = False,
+    settings_overrides: Mapping[str, str] | None = None,
+) -> tuple[int, int]:
+    settings = RuntimeSettings.from_env(settings_overrides)
     settings.ensure_runtime_dirs()
 
     pdf_files = sorted(settings.pdf_dir.glob("*.pdf"))

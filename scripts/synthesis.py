@@ -1,4 +1,5 @@
 import argparse
+from typing import Mapping
 
 from llama_index.core.query_engine import SubQuestionQueryEngine
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
@@ -12,9 +13,13 @@ except ModuleNotFoundError:
     from query_engine import get_advanced_query_engine
 
 
-def run_global_literature_review(broad_query: str, verbose: bool = False):
-    settings = RuntimeSettings.from_env()
-    base_engine = get_advanced_query_engine()
+def run_global_literature_review(
+    broad_query: str,
+    verbose: bool = False,
+    settings_overrides: Mapping[str, str] | None = None,
+):
+    settings = RuntimeSettings.from_env(settings_overrides)
+    base_engine = get_advanced_query_engine(settings_overrides=settings_overrides)
     llm = Ollama(
         model=settings.ollama_chat_model,
         base_url=settings.ollama_base_url,
