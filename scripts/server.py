@@ -84,9 +84,22 @@ class TaskRecord:
     error: str | None = None
     ended_at: str | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(
+        self,
+        *,
+        include_logs: bool = False,
+        log_preview_chars: int | None = 4000,
+    ) -> dict[str, Any]:
         payload = asdict(self)
-        payload["log_text"] = "".join(self.logs)
+        if not include_logs:
+            payload.pop("logs", None)
+
+        log_text = "".join(self.logs)
+        if log_preview_chars is not None:
+            payload["log_text"] = log_text[:log_preview_chars]
+        else:
+            payload["log_text"] = log_text
+
         return payload
 
 
