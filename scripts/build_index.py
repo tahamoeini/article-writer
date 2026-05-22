@@ -4,15 +4,20 @@ from pathlib import Path
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
+from llama_index.core.schema import MetadataMode
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client.http.exceptions import ResponseHandlingException
 from qdrant_client.models import Distance, VectorParams
 
 try:
     from scripts.config import RuntimeSettings
 except ModuleNotFoundError:
     from config import RuntimeSettings
+
+
+PARSER_EXCLUDED_METADATA_KEYS = ["filename", "source_path", "block_type"]
 
 
 def load_paragraphs(json_file: Path) -> list[dict[str, object]]:
@@ -61,8 +66,8 @@ def iter_llama_documents(settings: RuntimeSettings) -> list[Document]:
                     "block_type": paragraph.get("block_type", "paragraph"),
                 },
             )
-            document.excluded_embed_metadata_keys = []
-            document.excluded_llm_metadata_keys = []
+            document.excluded_embed_metadata_keys = PARSER_EXCLUDED_METADATA_KEYS
+            document.excluded_llm_metadata_keys = PARSER_EXCLUDED_METADATA_KEYS
             documents.append(document)
 
     if not documents:
@@ -71,9 +76,38 @@ def iter_llama_documents(settings: RuntimeSettings) -> list[Document]:
     return documents
 
 
+def resolve_chunk_sizes(settings: RuntimeSettings, documents: list[Document]) -> list[int]:
+    chunk_sizes = list(settings.chunk_sizes)
+    required_leaf_size = max(
+        max(
+            len(document.get_metadata_str(mode=MetadataMode.EMBED)),
+            len(document.get_metadata_str(mode=MetadataMode.LLM)),
+        )
+        for document in documents
+    ) + 32
+
+    if chunk_sizes[-1] < required_leaf_size:
+        chunk_sizes[-1] = required_leaf_size
+
+    for index in range(len(chunk_sizes) - 2, -1, -1):
+        if chunk_sizes[index] <= chunk_sizes[index + 1]:
+            buffer = 512 if index == 0 else 256
+            chunk_sizes[index] = chunk_sizes[index + 1] + buffer
+
+    return chunk_sizes
+
+
 def ensure_collection(settings: RuntimeSettings, recreate: bool) -> QdrantVectorStore:
     client = settings.create_qdrant_client()
-    collection_exists = client.collection_exists(settings.collection_name)
+    try:
+        collection_exists = client.collection_exists(settings.collection_name)
+    except ResponseHandlingException as exc:
+        raise RuntimeError(
+            "Unable to connect to Qdrant at "
+            f"{settings.qdrant_host}:{settings.qdrant_port}. "
+            "Start the service first, for example with 'docker compose up -d qdrant'."
+        ) from exc
+
     if recreate and collection_exists:
         client.delete_collection(settings.collection_name)
         collection_exists = False
@@ -102,14 +136,23 @@ def build_hierarchical_index(recreate: bool = False) -> tuple[int, int]:
     embed_model = OllamaEmbedding(
         model_name=settings.ollama_embed_model,
         base_url=settings.ollama_base_url,
+        client_kwargs={"trust_env": False},
     )
 
     llama_docs = iter_llama_documents(settings)
+    chunk_sizes = resolve_chunk_sizes(settings, llama_docs)
 
-    node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=list(settings.chunk_sizes))
-    nodes = node_parser.get_nodes_from_documents(llama_docs)
+    print(
+        f"Loaded {len(llama_docs)} documents from {settings.processed_dir}. "
+        f"Using hierarchical chunk sizes: {chunk_sizes}"
+    )
+
+    node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=chunk_sizes)
+    print("Parsing hierarchical nodes...")
+    nodes = node_parser.get_nodes_from_documents(llama_docs, show_progress=True)
     leaf_nodes = get_leaf_nodes(nodes)
     docstore.add_documents(nodes)
+    print(f"Parsed {len(nodes)} total nodes with {len(leaf_nodes)} leaf nodes.")
 
     storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
 

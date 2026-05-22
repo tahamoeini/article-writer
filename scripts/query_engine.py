@@ -65,11 +65,14 @@ def get_advanced_query_engine() -> CitationAwareQueryEngine:
     embed_model = OllamaEmbedding(
         model_name=settings.ollama_embed_model,
         base_url=settings.ollama_base_url,
+        client_kwargs={"trust_env": False},
     )
     llm = Ollama(
         model=settings.ollama_chat_model,
         base_url=settings.ollama_base_url,
         request_timeout=300.0,
+        client=settings.create_ollama_client(timeout=300.0),
+        async_client=settings.create_ollama_async_client(timeout=300.0),
     )
 
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)

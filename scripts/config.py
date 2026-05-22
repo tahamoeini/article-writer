@@ -82,5 +82,30 @@ class RuntimeSettings:
             port=self.qdrant_port,
             api_key=self.qdrant_api_key,
             timeout=self.qdrant_timeout,
+            check_compatibility=False,
+            trust_env=False,
+        )
+
+    def create_ollama_client(self, timeout: float | None = None, headers: dict[str, str] | None = None):
+        from ollama import Client
+
+        return Client(
+            host=self.ollama_base_url,
+            timeout=timeout,
+            headers=headers or {},
+            trust_env=False,
+        )
+
+    def create_ollama_async_client(
+        self,
+        timeout: float | None = None,
+        headers: dict[str, str] | None = None,
+    ):
+        from ollama import AsyncClient
+
+        return AsyncClient(
+            host=self.ollama_base_url,
+            timeout=timeout,
+            headers=headers or {},
             trust_env=False,
         )

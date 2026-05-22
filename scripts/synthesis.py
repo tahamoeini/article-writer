@@ -19,6 +19,8 @@ def run_global_literature_review(broad_query: str, verbose: bool = False):
         model=settings.ollama_chat_model,
         base_url=settings.ollama_base_url,
         request_timeout=600.0,
+        client=settings.create_ollama_client(timeout=600.0),
+        async_client=settings.create_ollama_async_client(timeout=600.0),
     )
 
     corpus_tool = QueryEngineTool(
