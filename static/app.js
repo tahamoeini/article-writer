@@ -74,14 +74,25 @@ function renderTask(task) {
   const item = document.createElement("button");
   item.type = "button";
   item.className = `task-item ${task.id === selectedTaskId ? "active" : ""}`;
-  item.innerHTML = `
-    <div class="task-title">
-      <strong>${task.name}</strong>
-      <span class="status-pill">${task.status}</span>
-    </div>
-    <small>${task.started_at}</small>
-    <small>${JSON.stringify(task.metadata)}</small>
-  `;
+  const title = document.createElement("div");
+  title.className = "task-title";
+
+  const name = document.createElement("strong");
+  name.textContent = task.name;
+
+  const status = document.createElement("span");
+  status.className = "status-pill";
+  status.textContent = task.status;
+
+  title.append(name, status);
+
+  const startedAt = document.createElement("small");
+  startedAt.textContent = task.started_at;
+
+  const metadata = document.createElement("small");
+  metadata.textContent = JSON.stringify(task.metadata);
+
+  item.append(title, startedAt, metadata);
   item.addEventListener("click", () => {
     selectedTaskId = task.id;
     refreshTasks();
@@ -160,7 +171,11 @@ function renderChat() {
   if (!chatMessages.length) {
     const bubble = document.createElement("div");
     bubble.className = "chat-bubble";
-    bubble.innerHTML = "<small>Assistant</small><div>Chat responses will appear here.</div>";
+    const role = document.createElement("small");
+    role.textContent = "Assistant";
+    const content = document.createElement("div");
+    content.textContent = "Chat responses will appear here.";
+    bubble.append(role, content);
     chatHistoryEl.appendChild(bubble);
     return;
   }
@@ -169,7 +184,11 @@ function renderChat() {
     const bubble = document.createElement("div");
     bubble.className = "chat-bubble";
     bubble.dataset.role = message.role;
-    bubble.innerHTML = `<small>${message.role}</small><div>${message.content}</div>`;
+    const role = document.createElement("small");
+    role.textContent = message.role;
+    const content = document.createElement("div");
+    content.textContent = message.content;
+    bubble.append(role, content);
     chatHistoryEl.appendChild(bubble);
   });
   chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;

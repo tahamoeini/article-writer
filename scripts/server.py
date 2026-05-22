@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import sys
 import threading
 import traceback
 import uuid
@@ -220,6 +221,49 @@ class _TaskLogWriter(io.TextIOBase):
         return None
 
 
+class _ThreadLocalStream(io.TextIOBase):
+    def __init__(self, fallback: io.TextIOBase):
+        self._fallback = fallback
+        self._local = threading.local()
+
+    def _current_stream(self) -> io.TextIOBase:
+        return getattr(self._local, "stream", self._fallback)
+
+    @contextlib.contextmanager
+    def redirect(self, stream: io.TextIOBase):
+        previous = getattr(self._local, "stream", None)
+        self._local.stream = stream
+        try:
+            yield
+        finally:
+            if previous is None:
+                del self._local.stream
+            else:
+                self._local.stream = previous
+
+    def write(self, data: str) -> int:
+        return self._current_stream().write(data)
+
+    def flush(self) -> None:
+        self._current_stream().flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._current_stream(), name)
+
+
+def _install_thread_local_stream(name: str) -> _ThreadLocalStream:
+    stream = getattr(sys, name)
+    if isinstance(stream, _ThreadLocalStream):
+        return stream
+    wrapped = _ThreadLocalStream(stream)
+    setattr(sys, name, wrapped)
+    return wrapped
+
+
+TASK_STDOUT = _install_thread_local_stream("stdout")
+TASK_STDERR = _install_thread_local_stream("stderr")
+
+
 class TaskManager:
     MAX_LOG_ENTRIES = 2000
 
@@ -264,7 +308,7 @@ class TaskManager:
     def _run_task(self, task_id: str, target, kwargs: dict[str, Any]) -> None:
         writer = _TaskLogWriter(lambda message: self._append_log(task_id, message))
         try:
-            with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+            with TASK_STDOUT.redirect(writer), TASK_STDERR.redirect(writer):
                 result = target(**kwargs)
         except Exception as exc:
             self._append_log(task_id, "\n" + traceback.format_exc())

@@ -1,3 +1,4 @@
+import threading
 import time
 import unittest
 from types import SimpleNamespace
@@ -66,6 +67,37 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(task["result"], [2, 1])
         self.assertIn("force=True", task["log_text"])
         self.assertIn("qwen-test", task["log_text"])
+
+    def test_concurrent_task_logs_stay_thread_local(self):
+        first_ready = threading.Event()
+        second_finished = threading.Event()
+
+        def first_task():
+            print("first-start")
+            first_ready.set()
+            if not second_finished.wait(timeout=2):
+                raise RuntimeError("Second task did not finish in time.")
+            print("first-end")
+
+        def second_task():
+            if not first_ready.wait(timeout=2):
+                raise RuntimeError("First task did not start in time.")
+            print("second-only")
+            second_finished.set()
+
+        first = server.task_manager.create_task("first", {}, first_task)
+        second = server.task_manager.create_task("second", {}, second_task)
+
+        first_payload = self.wait_for_task(first.id)
+        second_payload = self.wait_for_task(second.id)
+
+        self.assertEqual(first_payload["status"], "completed")
+        self.assertEqual(second_payload["status"], "completed")
+        self.assertIn("first-start", first_payload["log_text"])
+        self.assertIn("first-end", first_payload["log_text"])
+        self.assertNotIn("second-only", first_payload["log_text"])
+        self.assertIn("second-only", second_payload["log_text"])
+        self.assertNotIn("first-end", second_payload["log_text"])
 
     def test_query_endpoint_returns_text_and_citations(self):
         class FakeResponse:
