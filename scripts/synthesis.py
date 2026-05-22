@@ -1,5 +1,6 @@
 import argparse
-from threading import Event
+import time
+from threading import Event, Thread
 from typing import Mapping
 
 from llama_index.core.query_engine import SubQuestionQueryEngine
@@ -14,17 +15,26 @@ except ModuleNotFoundError:
     from query_engine import get_advanced_query_engine
 
 
+HEARTBEAT_JOIN_TIMEOUT_SECONDS = 0.2
+
+
 def run_global_literature_review(
     broad_query: str,
     verbose: bool = False,
     settings_overrides: Mapping[str, str] | None = None,
     cancel_event: Event | None = None,
+    status_interval_seconds: float = 5.0,
 ):
     if cancel_event and cancel_event.is_set():
         raise InterruptedError("Synthesis task was cancelled before it started.")
 
+    print(f"Starting global synthesis workflow for: {broad_query}")
+    print("Loading runtime settings...")
     settings = RuntimeSettings.from_env(settings_overrides)
+    print(f"Using chat model: {settings.ollama_chat_model}")
+    print("Loading query engine and retrieval stack...")
     base_engine = get_advanced_query_engine(settings_overrides=settings_overrides)
+    print("Connecting to the Ollama chat model...")
     llm = Ollama(
         model=settings.ollama_chat_model,
         base_url=settings.ollama_base_url,
@@ -33,6 +43,7 @@ def run_global_literature_review(
         async_client=settings.create_ollama_async_client(timeout=600.0),
     )
 
+    print("Preparing the sub-question synthesis workflow...")
     corpus_tool = QueryEngineTool(
         query_engine=base_engine,
         metadata=ToolMetadata(
@@ -49,11 +60,35 @@ def run_global_literature_review(
         verbose=verbose,
     )
 
-    print(f"Starting global synthesis workflow for: {broad_query}")
     if cancel_event and cancel_event.is_set():
         raise InterruptedError("Synthesis task was cancelled before querying the model.")
 
-    final_analysis = map_reduce_engine.query(broad_query)
+    print("Submitting the synthesis query to the model...")
+    heartbeat_stop = Event()
+
+    def emit_periodic_progress_updates() -> None:
+        started_at = time.monotonic()
+        while not heartbeat_stop.wait(status_interval_seconds):
+            elapsed_seconds = int(time.monotonic() - started_at)
+            print(
+                "Synthesis is still running "
+                f"({elapsed_seconds}s elapsed). The model may be loading, retrieving evidence, "
+                "or drafting the final answer..."
+            )
+
+    heartbeat_thread = None
+    if status_interval_seconds > 0:
+        heartbeat_thread = Thread(target=emit_periodic_progress_updates, daemon=True)
+        heartbeat_thread.start()
+
+    try:
+        final_analysis = map_reduce_engine.query(broad_query)
+    finally:
+        heartbeat_stop.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=HEARTBEAT_JOIN_TIMEOUT_SECONDS)
+
+    print("Synthesis query completed. Rendering final report...")
     print("\n======================= FINAL REPORT =======================\n")
     print(final_analysis)
     return final_analysis
