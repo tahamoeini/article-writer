@@ -282,6 +282,7 @@ class TaskManager:
 
     def __init__(self):
         self._lock = threading.Lock()
+        self._execution_lock = threading.Lock()
         self._tasks: dict[str, TaskRecord] = {}
 
     def create_task(self, name: str, metadata: dict[str, Any], target, **kwargs) -> TaskRecord:
@@ -320,13 +321,14 @@ class TaskManager:
 
     def _run_task(self, task_id: str, target, kwargs: dict[str, Any]) -> None:
         writer = _TaskLogWriter(lambda message: self._append_log(task_id, message))
-        try:
-            with TASK_STDOUT.redirect(writer), TASK_STDERR.redirect(writer):
-                result = target(**kwargs)
-        except Exception as exc:
-            self._append_log(task_id, "\n" + traceback.format_exc())
-            self._complete_task(task_id, error=str(exc))
-            return
+        with self._execution_lock:
+            try:
+                with TASK_STDOUT.redirect(writer), TASK_STDERR.redirect(writer):
+                    result = target(**kwargs)
+            except Exception as exc:
+                self._append_log(task_id, "\n" + traceback.format_exc())
+                self._complete_task(task_id, error=str(exc))
+                return
 
         self._complete_task(task_id, result=result)
 

@@ -103,25 +103,29 @@ class ServerTests(unittest.TestCase):
         self.assertIn("force=True", task["log_text"])
         self.assertIn("qwen-test", task["log_text"])
 
-    def test_concurrent_task_logs_stay_thread_local(self):
+    def test_concurrent_tasks_run_one_at_a_time(self):
         first_ready = threading.Event()
-        second_finished = threading.Event()
+        first_release = threading.Event()
+        second_started = threading.Event()
 
         def first_task():
             print("first-start")
             first_ready.set()
-            if not second_finished.wait(timeout=2):
-                raise RuntimeError("Second task did not finish in time.")
+            if not first_release.wait(timeout=2):
+                raise RuntimeError("First task was not released in time.")
             print("first-end")
 
         def second_task():
-            if not first_ready.wait(timeout=2):
-                raise RuntimeError("First task did not start in time.")
+            second_started.set()
             print("second-only")
-            second_finished.set()
 
         first = server.task_manager.create_task("first", {}, first_task)
         second = server.task_manager.create_task("second", {}, second_task)
+
+        self.assertTrue(first_ready.wait(timeout=2))
+        time.sleep(TASK_WAIT_SECONDS)
+        self.assertFalse(second_started.is_set())
+        first_release.set()
 
         first_payload = self.wait_for_task(first.id)
         second_payload = self.wait_for_task(second.id)
