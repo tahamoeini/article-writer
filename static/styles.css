@@ -137,12 +137,19 @@ button:hover {
 }
 
 .checkbox {
-  grid-template-columns: auto 1fr;
+  display: inline-flex;
   align-items: center;
+  gap: 8px;
 }
 
-.checkbox input {
+.checkbox-row input {
   width: auto;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .task-list {

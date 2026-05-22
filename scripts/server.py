@@ -25,6 +25,8 @@ except ModuleNotFoundError:
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
+OLLAMA_LIST_TIMEOUT_SECONDS = 30.0
+OLLAMA_CHAT_TIMEOUT_SECONDS = 300.0
 
 app = FastAPI(title="Article Writer Control Center")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -219,6 +221,8 @@ class _TaskLogWriter(io.TextIOBase):
 
 
 class TaskManager:
+    MAX_LOG_ENTRIES = 2000
+
     def __init__(self):
         self._lock = threading.Lock()
         self._tasks: dict[str, TaskRecord] = {}
@@ -246,8 +250,8 @@ class TaskManager:
         with self._lock:
             record = self._tasks[task_id]
             record.logs.append(message)
-            if len(record.logs) > 2000:
-                record.logs = record.logs[-2000:]
+            if len(record.logs) > self.MAX_LOG_ENTRIES:
+                record.logs = record.logs[-self.MAX_LOG_ENTRIES :]
 
     def _complete_task(self, task_id: str, *, result: Any = None, error: str | None = None) -> None:
         with self._lock:
@@ -332,7 +336,7 @@ async def list_models(ollama_base_url: str | None = Query(default=None)):
     overrides = {"OLLAMA_BASE_URL": ollama_base_url} if ollama_base_url else None
     settings = RuntimeSettings.from_env(_normalize_overrides(overrides))
     try:
-        models = _extract_models(settings.create_ollama_client(timeout=30.0).list())
+        models = _extract_models(settings.create_ollama_client(timeout=OLLAMA_LIST_TIMEOUT_SECONDS).list())
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"models": models}
@@ -417,7 +421,7 @@ async def chat_with_model(payload: ChatRequest):
         messages.append({"role": "user", "content": payload.prompt})
 
     try:
-        response = settings.create_ollama_client(timeout=300.0).chat(
+        response = settings.create_ollama_client(timeout=OLLAMA_CHAT_TIMEOUT_SECONDS).chat(
             model=settings.ollama_chat_model,
             messages=messages,
         )

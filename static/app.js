@@ -101,12 +101,10 @@ async function refreshTasks() {
     }
     if (selectedTaskId) {
       const selected = await fetchJson(`/v1/tasks/${selectedTaskId}`, { method: "GET" });
-      setText(taskLogsEl, selected.log_text || JSON.stringify(selected.result || selected.error || "No logs yet.", null, 2));
-      if (selected.result && !selected.log_text) {
-        setText(taskLogsEl, JSON.stringify(selected.result, null, 2));
-      }
       if (selected.error) {
         setText(taskLogsEl, `${selected.log_text}\n\nERROR: ${selected.error}`);
+      } else {
+        setText(taskLogsEl, selected.log_text || JSON.stringify(selected.result || "No logs yet.", null, 2));
       }
     }
 

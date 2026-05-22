@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 
 from scripts import server
 
+MAX_TASK_WAIT_ITERATIONS = 40
+TASK_WAIT_SECONDS = 0.05
+
 
 class ServerTests(unittest.TestCase):
     def setUp(self):
@@ -15,12 +18,12 @@ class ServerTests(unittest.TestCase):
         self.client = TestClient(server.app)
 
     def wait_for_task(self, task_id: str) -> dict:
-        for _ in range(40):
+        for _ in range(MAX_TASK_WAIT_ITERATIONS):
             response = self.client.get(f"/v1/tasks/{task_id}")
             payload = response.json()
             if payload["status"] != "running":
                 return payload
-            time.sleep(0.05)
+            time.sleep(TASK_WAIT_SECONDS)
         self.fail("Task did not finish in time.")
 
     def test_index_page_is_served(self):

@@ -90,10 +90,10 @@
                 <h3>Ingest PDFs</h3>
                 <p>Convert files in <code>corpus/pdfs</code> into processed JSON.</p>
               </div>
-              <label class="checkbox">
-                <input id="ingest-force" type="checkbox" />
-                Force rebuild existing files
-              </label>
+              <div class="checkbox-row">
+                <input id="ingest-force" type="checkbox" aria-label="Force rebuild existing files" />
+                <label class="checkbox" for="ingest-force">Force rebuild existing files</label>
+              </div>
               <button id="ingest-button" type="button">Run ingest</button>
             </div>
 
@@ -102,10 +102,10 @@
                 <h3>Build index</h3>
                 <p>Rebuild the hierarchical retrieval index and refresh query artifacts.</p>
               </div>
-              <label class="checkbox">
-                <input id="build-recreate" type="checkbox" />
-                Recreate the Qdrant collection
-              </label>
+              <div class="checkbox-row">
+                <input id="build-recreate" type="checkbox" aria-label="Recreate the Qdrant collection" />
+                <label class="checkbox" for="build-recreate">Recreate the Qdrant collection</label>
+              </div>
               <button id="build-button" type="button">Build index</button>
             </div>
 
@@ -115,10 +115,10 @@
                 <p>Launch the multi-step literature review workflow as a background task.</p>
               </div>
               <textarea id="synthesis-query" rows="4" placeholder="What are the main themes across the corpus?"></textarea>
-              <label class="checkbox">
-                <input id="synthesis-verbose" type="checkbox" />
-                Show verbose sub-question logs
-              </label>
+              <div class="checkbox-row">
+                <input id="synthesis-verbose" type="checkbox" aria-label="Show verbose sub-question logs" />
+                <label class="checkbox" for="synthesis-verbose">Show verbose sub-question logs</label>
+              </div>
               <button id="synthesis-button" type="button">Run synthesis</button>
             </div>
           </div>
