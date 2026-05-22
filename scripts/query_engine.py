@@ -1,5 +1,4 @@
 import json
-import pickle
 from functools import lru_cache
 from typing import Any, Mapping
 
@@ -46,10 +45,10 @@ def load_docstore(settings: RuntimeSettings) -> SimpleDocumentStore:
 
 
 def load_bm25_retriever(settings: RuntimeSettings, docstore: SimpleDocumentStore) -> BM25Retriever:
-    """Load BM25 retriever from serialized disk file, falling back to building from scratch."""
-    if settings.bm25_index_path.exists():
-        with settings.bm25_index_path.open("rb") as handle:
-            bm25_retriever = pickle.load(handle)  # noqa: S301
+    """Load BM25 retriever from disk, falling back to building from scratch."""
+    if settings.bm25_index_path.is_dir():
+        bm25_retriever = BM25Retriever.from_persist_dir(str(settings.bm25_index_path))
+        bm25_retriever.similarity_top_k = settings.bm25_top_k
         return bm25_retriever
 
     # Fallback: build from leaf nodes (expensive, but ensures backward compatibility)

@@ -1,7 +1,7 @@
 import argparse
 import concurrent.futures
 import json
-import pickle
+import shutil
 from pathlib import Path
 from threading import Event
 from typing import Mapping
@@ -212,14 +212,19 @@ def persist_leaf_nodes(leaf_node_ids: list[str], settings: RuntimeSettings) -> N
 
 
 def persist_bm25_index(leaf_nodes, settings: RuntimeSettings) -> None:
-    """Build and serialize the BM25 index to disk for fast loading at query time."""
+    """Build and persist the BM25 index to disk for fast loading at query time."""
     print(f"Building BM25 index from {len(leaf_nodes)} leaf nodes...")
     bm25_retriever = BM25Retriever.from_defaults(
         nodes=leaf_nodes, similarity_top_k=settings.bm25_top_k
     )
-    with settings.bm25_index_path.open("wb") as handle:
-        pickle.dump(bm25_retriever, handle)
-    print(f"BM25 index serialized to {settings.bm25_index_path}")
+    if settings.bm25_index_path.exists():
+        if settings.bm25_index_path.is_dir():
+            shutil.rmtree(settings.bm25_index_path)
+        else:
+            settings.bm25_index_path.unlink()
+    settings.bm25_index_path.mkdir(parents=True, exist_ok=True)
+    bm25_retriever.persist(str(settings.bm25_index_path))
+    print(f"BM25 index persisted to {settings.bm25_index_path}")
 
 
 def build_hierarchical_index(
@@ -259,6 +264,8 @@ def build_hierarchical_index(
         )
 
     batch_size = settings.ingest_batch_size
+    if batch_size < 1:
+        raise ValueError("INGEST_BATCH_SIZE must be greater than or equal to 1.")
     total_files = len(processed_files)
     batches = [
         processed_files[i:i + batch_size]
@@ -274,12 +281,8 @@ def build_hierarchical_index(
     all_leaf_node_ids: list[str] = []
     chunk_sizes: list[int] | None = None
 
-    # Load or create docstore incrementally
-    if not recreate and settings.docstore_path.exists():
-        docstore = SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
-        print("Loaded existing docstore for incremental append.")
-    else:
-        docstore = SimpleDocumentStore()
+    if recreate and settings.docstore_path.exists():
+        settings.docstore_path.unlink()
 
     for batch_idx, batch_files in enumerate(batches):
         if cancel_event and cancel_event.is_set():
@@ -305,6 +308,12 @@ def build_hierarchical_index(
         leaf_nodes = get_leaf_nodes(nodes)
         print(f"{batch_label}: {len(nodes)} total nodes, {len(leaf_nodes)} leaf nodes.")
 
+        if settings.docstore_path.exists():
+            docstore = SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
+            print(f"{batch_label}: reloaded persisted docstore.")
+        else:
+            docstore = SimpleDocumentStore()
+
         # Add to docstore
         docstore.add_documents(nodes)
 
@@ -327,7 +336,7 @@ def build_hierarchical_index(
         print(f"{batch_label}: docstore flushed to disk ({len(all_leaf_node_ids)} leaf nodes so far).")
 
         # Free batch memory
-        del documents, nodes, leaf_nodes
+        del documents, nodes, leaf_nodes, storage_context, docstore
 
     if not all_leaf_node_ids:
         raise ValueError(f"Processed files exist in {settings.processed_dir} but contain no indexable text.")
@@ -343,6 +352,7 @@ def build_hierarchical_index(
     persist_leaf_nodes(all_leaf_node_ids, settings)
 
     # Build and persist BM25 index from all leaf nodes
+    docstore = SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
     all_leaf_nodes = [
         docstore.docs[nid] for nid in all_leaf_node_ids if nid in docstore.docs
     ]

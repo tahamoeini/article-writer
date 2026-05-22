@@ -69,7 +69,7 @@ The project writes generated artifacts to:
 - corpus/processed/
 - index_storage/docstore.json
 - index_storage/leaf_nodes.json
-- index_storage/bm25_index.pkl
+- index_storage/bm25_index/
 
 ## Choosing Models
 

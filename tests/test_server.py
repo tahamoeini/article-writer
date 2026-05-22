@@ -8,9 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from llama_index.core.schema import TextNode
+from llama_index.retrievers.bm25 import BM25Retriever
 
 from scripts import build_index
 from scripts import ingest
+from scripts import query_engine
 from scripts import server
 from scripts import synthesis
 
@@ -219,7 +222,7 @@ class ServerTests(unittest.TestCase):
                 collection_name="articles",
                 docstore_path=tmp_path / "docstore.json",
                 leaf_nodes_path=tmp_path / "leaf_nodes.json",
-                bm25_index_path=tmp_path / "bm25_index.pkl",
+                bm25_index_path=tmp_path / "bm25_index",
                 chunk_sizes=(2048, 768, 256),
                 ingest_batch_size=50,
                 bm25_top_k=24,
@@ -251,6 +254,65 @@ class ServerTests(unittest.TestCase):
         self.assertIn("Overall index progress: 0% done, 100% remaining", output)
         self.assertIn("Overall index progress: 95% done, 5% remaining", output)
         self.assertIn("Overall index progress: 100% done, 0% remaining", output)
+
+    def test_runtime_settings_reject_invalid_ingest_batch_size(self):
+        with self.assertRaisesRegex(ValueError, "INGEST_BATCH_SIZE must be greater than or equal to 1"):
+            server.RuntimeSettings.from_env({"INGEST_BATCH_SIZE": "0"})
+
+    def test_build_index_rejects_non_positive_batch_size(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            processed_dir = tmp_path / "processed"
+            processed_dir.mkdir()
+            (processed_dir / "doc1.json").write_text(
+                '[{"id":"doc1:1","text":"Hello world","metadata":{"title":"Doc1"}}]',
+                encoding="utf-8",
+            )
+
+            fake_settings = SimpleNamespace(
+                processed_dir=processed_dir,
+                ollama_embed_model="embed-model",
+                ollama_base_url="http://ollama",
+                collection_name="articles",
+                docstore_path=tmp_path / "docstore.json",
+                leaf_nodes_path=tmp_path / "leaf_nodes.json",
+                bm25_index_path=tmp_path / "bm25_index",
+                chunk_sizes=(2048, 768, 256),
+                ingest_batch_size=0,
+                bm25_top_k=24,
+                ensure_runtime_dirs=lambda: None,
+            )
+
+            with (
+                patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
+                patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
+                patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
+            ):
+                with self.assertRaisesRegex(ValueError, "INGEST_BATCH_SIZE must be greater than or equal to 1"):
+                    build_index.build_hierarchical_index()
+
+    def test_load_bm25_retriever_applies_current_top_k_to_persisted_index(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bm25_index_path = tmp_path / "bm25_index"
+            bm25_index_path.mkdir()
+            persisted_retriever = BM25Retriever.from_defaults(
+                nodes=[TextNode(id_="leaf-1", text="hello world")],
+                similarity_top_k=1,
+            )
+            persisted_retriever.persist(str(bm25_index_path))
+
+            fake_settings = SimpleNamespace(
+                bm25_index_path=bm25_index_path,
+                bm25_top_k=5,
+            )
+
+            loaded_retriever = query_engine.load_bm25_retriever(
+                fake_settings,
+                SimpleNamespace(),
+            )
+
+        self.assertEqual(loaded_retriever.similarity_top_k, 5)
 
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
