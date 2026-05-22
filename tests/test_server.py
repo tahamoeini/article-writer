@@ -256,6 +256,8 @@ class ServerTests(unittest.TestCase):
 
         self.assertEqual(result, (1, 1))
         self.assertIs(storage_context_class.from_defaults.call_args.kwargs["docstore"], batch_docstore)
+        aggregate_docstore.add_documents.assert_called_once_with([fake_node])
+        aggregate_docstore.persist.assert_called_once_with(str(fake_settings.docstore_path))
         persist_bm25_index.assert_called_once_with([fake_node], fake_settings)
         output = captured_output.getvalue()
         self.assertIn("Requested workers/processes: 4", output)
