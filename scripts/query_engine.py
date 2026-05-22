@@ -6,7 +6,7 @@ from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import get_response_synthesizer
 from llama_index.core.retrievers import AutoMergingRetriever, QueryFusionRetriever
-from llama_index.core.schema import BaseNode
+from llama_index.core.schema import BaseNode, TextNode
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.llms.ollama import Ollama
 from llama_index.retrievers.bm25 import BM25Retriever
@@ -71,20 +71,38 @@ def hydrate_leaf_nodes(docstore: SimpleDocumentStore, node_ids: list[str]) -> li
     nodes: list[BaseNode] = []
     for node_id in node_ids:
         node = docstore.get_node(node_id, raise_error=False)
+        if node is None:
+            continue
         if isinstance(node, BaseNode):
             nodes.append(node)
+        elif isinstance(node, dict):
+            # Handle unhydrated dictionary structures from docstore
+            try:
+                hydrated_node = TextNode.from_dict(node)
+                nodes.append(hydrated_node)
+            except Exception:
+                pass
     return nodes
 
 
 def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
     node_ids = load_leaf_node_ids(settings)
+    # node_ids is a list of strings; hydrate into actual Node objects
     nodes = hydrate_leaf_nodes(docstore, node_ids)
     if nodes:
         return nodes
 
+    # Final fallback: scan entire docstore for small text nodes (likely leaves)
     fallback_nodes: list[BaseNode] = []
     for node_id in docstore.docs:
         node = docstore.get_node(node_id, raise_error=False)
+        if node is None:
+            continue
+        if isinstance(node, dict):
+            try:
+                node = TextNode.from_dict(node)
+            except Exception:
+                continue
         if isinstance(node, BaseNode) and len(getattr(node, "text", "")) <= 500:
             fallback_nodes.append(node)
     return fallback_nodes
