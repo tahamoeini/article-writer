@@ -7,3 +7,4 @@ corpus/*
 ai-responses/
 anythingllm.docker
 **/__pycache__/*
+index_storage/*

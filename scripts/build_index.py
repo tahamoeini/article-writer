@@ -23,6 +23,31 @@ except ModuleNotFoundError:
 
 PARSER_EXCLUDED_METADATA_KEYS = ["filename", "source_path", "block_type"]
 MAX_WORKERS = 32
+INDEX_PROGRESS_PHASES = [
+    ("Load processed documents", 10),
+    ("Parse hierarchical nodes", 35),
+    ("Embed and write vectors", 50),
+    ("Persist manifests", 5),
+]
+
+
+def print_overall_progress(done_percent: int, message: str) -> None:
+    remaining_percent = max(0, 100 - done_percent)
+    print(
+        f"Overall index progress: {done_percent}% done, "
+        f"{remaining_percent}% remaining - {message}",
+        flush=True,
+    )
+
+
+def print_phase_progress(phase_index: int, message: str) -> None:
+    completed_percent = sum(percent for _, percent in INDEX_PROGRESS_PHASES[:phase_index])
+    phase_name, phase_percent = INDEX_PROGRESS_PHASES[phase_index]
+    print_overall_progress(
+        completed_percent,
+        f"phase {phase_index + 1}/{len(INDEX_PROGRESS_PHASES)}: "
+        f"{phase_name} ({phase_percent}% of total) - {message}",
+    )
 
 
 def load_paragraphs(json_file: Path) -> list[dict[str, object]]:
@@ -203,7 +228,16 @@ def build_hierarchical_index(
         client_kwargs={"trust_env": False},
     )
 
+    print(
+        "Starting hierarchical index build. "
+        f"Requested workers/processes: {max_workers}; "
+        "document preparation and node parsing can use these worker threads; "
+        "embedding/vector writes are performed by the single index builder.",
+        flush=True,
+    )
+    print_phase_progress(0, f"reading processed JSON files from {settings.processed_dir}")
     llama_docs = iter_llama_documents(settings, max_workers=max_workers)
+    print_overall_progress(10, f"loaded {len(llama_docs)} document(s)")
     chunk_sizes = resolve_chunk_sizes(settings, llama_docs)
 
     if cancel_event and cancel_event.is_set():
@@ -215,17 +249,20 @@ def build_hierarchical_index(
         f"Using hierarchical chunk sizes: {chunk_sizes}"
     )
 
+    print_phase_progress(1, f"parsing {len(llama_docs)} document(s) with {max_workers} worker(s)")
     print(f"Parsing hierarchical nodes with {max_workers} worker(s)...")
     nodes = parse_hierarchical_nodes(llama_docs, chunk_sizes, max_workers=max_workers)
     leaf_nodes = get_leaf_nodes(nodes)
     docstore.add_documents(nodes)
     print(f"Parsed {len(nodes)} total nodes with {len(leaf_nodes)} leaf nodes.")
+    print_overall_progress(45, f"parsed {len(nodes)} total nodes; {len(leaf_nodes)} leaf nodes ready for embedding")
 
     if cancel_event and cancel_event.is_set():
         raise InterruptedError("Build index task was cancelled before vector indexing.")
 
     storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
 
+    print_phase_progress(2, f"embedding and indexing {len(leaf_nodes)} leaf node(s)")
     print(f"Indexing {len(leaf_nodes)} leaf nodes into collection '{settings.collection_name}'...")
     VectorStoreIndex(
         leaf_nodes,
@@ -233,9 +270,12 @@ def build_hierarchical_index(
         embed_model=embed_model,
         show_progress=True,
     )
+    print_overall_progress(95, f"embedded and indexed {len(leaf_nodes)} leaf node(s)")
 
+    print_phase_progress(3, "writing docstore and leaf-node manifest")
     docstore.persist(str(settings.docstore_path))
     persist_leaf_nodes(leaf_nodes, settings)
+    print_overall_progress(100, "index build complete")
     print(
         "Vector indexing completed. "
         f"docstore={settings.docstore_path}, leaf_manifest={settings.leaf_nodes_path}"

@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -194,6 +195,50 @@ class ServerTests(unittest.TestCase):
             documents = build_index.iter_llama_documents(fake_settings, max_workers=2)
 
         self.assertEqual([document.doc_id for document in documents], ["alpha:1", "zeta:1"])
+
+    def test_build_index_prints_overall_progress_and_worker_count(self):
+        fake_settings = SimpleNamespace(
+            processed_dir=Path("/tmp/processed"),
+            ollama_embed_model="embed-model",
+            ollama_base_url="http://ollama",
+            collection_name="articles",
+            docstore_path=Path("/tmp/docstore.json"),
+            leaf_nodes_path=Path("/tmp/leaf_nodes.json"),
+            chunk_sizes=(2048, 768, 256),
+            ensure_runtime_dirs=lambda: None,
+        )
+        fake_document = SimpleNamespace(
+            get_metadata_str=lambda mode=None: "metadata",
+        )
+        fake_node = SimpleNamespace(node_id="leaf-1")
+        captured_output = StringIO()
+
+        with (
+            patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
+            patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
+            patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
+            patch.object(build_index, "iter_llama_documents", return_value=[fake_document]),
+            patch.object(build_index, "parse_hierarchical_nodes", return_value=[fake_node]),
+            patch.object(build_index, "get_leaf_nodes", return_value=[fake_node]),
+            patch.object(build_index, "SimpleDocumentStore") as docstore_class,
+            patch.object(build_index, "StorageContext") as storage_context_class,
+            patch.object(build_index, "VectorStoreIndex"),
+            patch.object(build_index, "persist_leaf_nodes"),
+            patch("sys.stdout", captured_output),
+        ):
+            docstore_class.return_value.add_documents.return_value = None
+            docstore_class.return_value.persist.return_value = None
+            storage_context_class.from_defaults.return_value = SimpleNamespace()
+
+            result = build_index.build_hierarchical_index(max_workers=4)
+
+        self.assertEqual(result, (1, 1))
+        output = captured_output.getvalue()
+        self.assertIn("Requested workers/processes: 4", output)
+        self.assertIn("Overall index progress: 0% done, 100% remaining", output)
+        self.assertIn("Overall index progress: 45% done, 55% remaining", output)
+        self.assertIn("Overall index progress: 95% done, 5% remaining", output)
+        self.assertIn("Overall index progress: 100% done, 0% remaining", output)
 
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
