@@ -45,7 +45,7 @@ function fillModelSelect(selectId, models) {
   const select = document.getElementById(selectId);
   const currentValue = select.value;
   const options = models.length ? models : [currentValue];
-  select.innerHTML = "";
+  select.replaceChildren();
   options.forEach((model) => {
     const option = document.createElement("option");
     option.value = model;
@@ -103,7 +103,7 @@ function renderTask(task) {
 async function refreshTasks() {
   try {
     const data = await fetchJson("/v1/tasks", { method: "GET" });
-    taskListEl.innerHTML = "";
+    taskListEl.replaceChildren();
     tasksEmptyEl.style.display = data.tasks.length ? "none" : "block";
     data.tasks.forEach((task) => taskListEl.appendChild(renderTask(task)));
 
@@ -167,7 +167,7 @@ async function runResearchQuery() {
 }
 
 function renderChat() {
-  chatHistoryEl.innerHTML = "";
+  chatHistoryEl.replaceChildren();
   if (!chatMessages.length) {
     const bubble = document.createElement("div");
     bubble.className = "chat-bubble";
