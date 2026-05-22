@@ -26,6 +26,8 @@ services:
       - ./corpus:/app/corpus
       - ./index_storage:/app/index_storage
       - ./scripts:/app/scripts
+      - ./static:/app/static
+      - ./templates:/app/templates
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - QDRANT_HOST=qdrant

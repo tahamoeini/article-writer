@@ -7,14 +7,14 @@ It does four things:
 1. Extracts structured text and metadata from PDFs in corpus/pdfs.
 2. Stores cleaned paragraph JSON files in corpus/processed.
 3. Builds a hierarchical retrieval index backed by Qdrant and LlamaIndex.
-4. Serves a small FastAPI research endpoint for corpus-grounded answers.
+4. Serves a FastAPI control center with a browser UI, research APIs, background task logs, and model chat.
 
 ## Project Layout
 
 - scripts/ingest.py: parses PDFs and writes one JSON file per document into corpus/processed.
 - scripts/build_index.py: reads processed JSON files and builds the Qdrant index plus local docstore artifacts.
 - scripts/query_engine.py: assembles the hybrid retriever and citation-aware query engine.
-- scripts/server.py: exposes the query engine through a FastAPI service.
+- scripts/server.py: exposes the query engine through a FastAPI service plus the browser control center.
 - scripts/synthesis.py: runs broader synthesis queries across the indexed corpus.
 - scripts/config.py: reads runtime settings and creates clients for Qdrant and Ollama.
 - scripts/safe_ollama_embedding.py: wraps Ollama embeddings so long texts are handled safely.
@@ -32,6 +32,18 @@ You need the following services available locally:
 - GROBID if you want metadata enrichment from PDF headers.
 
 The repository also includes Docker support for Qdrant, GROBID, and the API service.
+
+## Python Setup
+
+Install the Python dependencies before running the scripts or tests:
+
+    python -m venv .venv
+    . .venv/bin/activate
+    python -m pip install -r requirements.txt
+
+On Windows (PowerShell):
+
+    .venv\\Scripts\\Activate.ps1
 
 ## Environment Variables
 
@@ -93,13 +105,27 @@ This step:
 - writes the local docstore to index_storage/docstore.json
 - writes leaf node IDs to index_storage/leaf_nodes.json
 
-### 4. Query the corpus through the API
+### 4. Open the web UI
 
 Start the API server:
 
     python scripts/server.py
 
-The server listens on port 8000 by default.
+Then open:
+
+    http://127.0.0.1:8000
+
+The web UI lets you:
+
+- run ingestion, index-building, and synthesis jobs from the browser
+- inspect live task logs and final task results
+- load Ollama models and switch chat / embedding models
+- run corpus-grounded research queries
+- chat directly with the selected Ollama model
+
+### 5. Query the corpus through the API
+
+The server still listens on port 8000 by default and exposes API endpoints behind the UI.
 
 Health check:
 
@@ -120,7 +146,18 @@ The response includes:
 - text: the generated answer
 - citations: source nodes with title, author, year, page, paragraph, and score
 
-### 5. Run a broader synthesis query
+Task endpoints exposed for the UI:
+
+- POST /v1/tasks/ingest
+- POST /v1/tasks/build-index
+- POST /v1/tasks/synthesis
+- GET /v1/tasks
+- GET /v1/tasks/{task_id}
+- GET /v1/models
+- POST /v1/chat
+- GET /v1/settings/defaults
+
+### 6. Run a broader synthesis query from the CLI
 
 Use the synthesis script when you want a multi-step literature review style answer:
 
@@ -136,11 +173,11 @@ The docker-compose file starts three services:
 
 - qdrant on port 6333
 - grobid on port 8070
-- rag-api on port 8000
+- rag-api on port 8000 for both the UI and the API
 
 Bring the stack up with:
 
-    docker compose up -d
+    docker compose up -d --build
 
 The API container expects Ollama to be reachable from the host machine at http://host.docker.internal:11434.
 
@@ -160,9 +197,15 @@ This separation lets you rebuild only the stage you changed instead of rerunning
 
 - If ingesting fails, verify that PyMuPDF is installed and that corpus/pdfs contains PDF files.
 - If build_index.py reports a missing collection or connection error, start Qdrant first.
-- If the API returns a degraded health status, check that Qdrant, Ollama, and the docstore artifacts exist.
+- If the UI health check returns a degraded status, check that Qdrant, Ollama, and the docstore artifacts exist.
 - If GROBID is unavailable, ingestion still works, but metadata enrichment falls back to local PDF extraction.
 - If queries fail with missing artifacts, rebuild the index after ingestion.
+
+## Validation
+
+The current automated server checks can be run with:
+
+    python -m unittest discover -s tests
 
 ## Notes on Generated Files
 
