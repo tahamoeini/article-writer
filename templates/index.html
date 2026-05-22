@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Article Writer Control Center</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Article Writer</p>
+          <h1>Control Center</h1>
+          <p class="lede">
+            Run the pipeline, inspect logs, switch models, query the corpus, and chat with Ollama from one place.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="health-button" type="button">Check health</button>
+          <div id="health-output" class="status-card">Health status will appear here.</div>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Runtime settings</h2>
+          <button id="models-button" type="button">Load Ollama models</button>
+        </div>
+        <div class="settings-grid">
+          <label>
+            Ollama base URL
+            <input id="ollama-base-url" value="{{ defaults.ollama_base_url }}" />
+          </label>
+          <label>
+            Qdrant host
+            <input id="qdrant-host" value="{{ defaults.qdrant_host }}" />
+          </label>
+          <label>
+            Qdrant port
+            <input id="qdrant-port" value="{{ defaults.qdrant_port }}" />
+          </label>
+          <label>
+            Collection name
+            <input id="collection-name" value="{{ defaults.collection_name }}" />
+          </label>
+          <label>
+            GROBID URL
+            <input id="grobid-url" value="{{ defaults.grobid_base_url }}" />
+          </label>
+          <label>
+            Chunk sizes
+            <input id="chunk-sizes" value="{{ defaults.chunk_sizes }}" />
+          </label>
+          <label>
+            Vector top-k
+            <input id="vector-top-k" value="{{ defaults.vector_top_k }}" />
+          </label>
+          <label>
+            BM25 top-k
+            <input id="bm25-top-k" value="{{ defaults.bm25_top_k }}" />
+          </label>
+          <label>
+            Fused top-k
+            <input id="fused-top-k" value="{{ defaults.fused_top_k }}" />
+          </label>
+          <label>
+            Chat model
+            <select id="chat-model">
+              <option value="{{ defaults.ollama_chat_model }}">{{ defaults.ollama_chat_model }}</option>
+            </select>
+          </label>
+          <label>
+            Embedding model
+            <select id="embed-model">
+              <option value="{{ defaults.ollama_embed_model }}">{{ defaults.ollama_embed_model }}</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="two-column">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Pipeline actions</h2>
+          </div>
+          <div class="action-stack">
+            <div class="action-card">
+              <div>
+                <h3>Ingest PDFs</h3>
+                <p>Convert files in <code>corpus/pdfs</code> into processed JSON.</p>
+              </div>
+              <label class="checkbox">
+                <input id="ingest-force" type="checkbox" />
+                Force rebuild existing files
+              </label>
+              <button id="ingest-button" type="button">Run ingest</button>
+            </div>
+
+            <div class="action-card">
+              <div>
+                <h3>Build index</h3>
+                <p>Rebuild the hierarchical retrieval index and refresh query artifacts.</p>
+              </div>
+              <label class="checkbox">
+                <input id="build-recreate" type="checkbox" />
+                Recreate the Qdrant collection
+              </label>
+              <button id="build-button" type="button">Build index</button>
+            </div>
+
+            <div class="action-card">
+              <div>
+                <h3>Run synthesis</h3>
+                <p>Launch the multi-step literature review workflow as a background task.</p>
+              </div>
+              <textarea id="synthesis-query" rows="4" placeholder="What are the main themes across the corpus?"></textarea>
+              <label class="checkbox">
+                <input id="synthesis-verbose" type="checkbox" />
+                Show verbose sub-question logs
+              </label>
+              <button id="synthesis-button" type="button">Run synthesis</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Task monitor</h2>
+            <button id="refresh-tasks-button" type="button">Refresh</button>
+          </div>
+          <div id="tasks-empty" class="muted">No tasks started yet.</div>
+          <div id="task-list" class="task-list"></div>
+          <div class="log-panel">
+            <h3>Logs</h3>
+            <pre id="task-logs">Select a task to inspect logs.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="two-column">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Corpus query</h2>
+          </div>
+          <textarea id="research-prompt" rows="5" placeholder="What does the corpus say about hierarchical retrieval methods?"></textarea>
+          <button id="research-button" type="button">Ask the corpus</button>
+          <div id="research-output" class="output-card"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Model chat</h2>
+          </div>
+          <div id="chat-history" class="chat-history"></div>
+          <textarea id="chat-prompt" rows="4" placeholder="Summarize the current research direction."></textarea>
+          <button id="chat-button" type="button">Send to model</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
