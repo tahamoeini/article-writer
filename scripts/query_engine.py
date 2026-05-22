@@ -5,15 +5,16 @@ from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import get_response_synthesizer
 from llama_index.core.retrievers import AutoMergingRetriever, QueryFusionRetriever
 from llama_index.core.storage.docstore import SimpleDocumentStore
-from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.llms.ollama import Ollama
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 
 try:
     from scripts.config import RuntimeSettings
+    from scripts.safe_ollama_embedding import SafeOllamaEmbedding
 except ModuleNotFoundError:
     from config import RuntimeSettings
+    from safe_ollama_embedding import SafeOllamaEmbedding
 
 
 SYSTEM_PROMPT = """You are a strict academic literature review research assistant.
@@ -62,7 +63,7 @@ def get_advanced_query_engine() -> CitationAwareQueryEngine:
         )
 
     vector_store = QdrantVectorStore(client=client, collection_name=settings.collection_name)
-    embed_model = OllamaEmbedding(
+    embed_model = SafeOllamaEmbedding(
         model_name=settings.ollama_embed_model,
         base_url=settings.ollama_base_url,
         client_kwargs={"trust_env": False},

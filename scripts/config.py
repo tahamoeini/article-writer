@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 
 def _clean_url(value: str) -> str:
@@ -12,6 +13,14 @@ def _parse_chunk_sizes(raw_value: str) -> tuple[int, int, int]:
     if len(parts) != 3:
         raise ValueError("CHUNK_SIZES must contain exactly three comma-separated integers.")
     return tuple(int(part) for part in parts)
+
+
+def _get_setting(overrides: Mapping[str, str] | None, key: str, default: str | None = None) -> str:
+    if overrides and key in overrides and overrides[key] is not None:
+        return str(overrides[key])
+    if default is None:
+        return os.environ[key]
+    return os.getenv(key, default)
 
 
 @dataclass(frozen=True)
@@ -41,7 +50,7 @@ class RuntimeSettings:
         return f"{self.grobid_base_url}/api/processHeaderDocument"
 
     @classmethod
-    def from_env(cls) -> "RuntimeSettings":
+    def from_env(cls, overrides: Mapping[str, str] | None = None) -> "RuntimeSettings":
         base_dir = Path(__file__).resolve().parent.parent
         pdf_dir = base_dir / "corpus" / "pdfs"
         processed_dir = base_dir / "corpus" / "processed"
@@ -54,19 +63,19 @@ class RuntimeSettings:
             index_dir=index_dir,
             docstore_path=index_dir / "docstore.json",
             leaf_nodes_path=index_dir / "leaf_nodes.json",
-            collection_name=os.getenv("QDRANT_COLLECTION", "academic_corpus"),
-            qdrant_host=os.getenv("QDRANT_HOST", "127.0.0.1"),
-            qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
-            qdrant_api_key=os.getenv("QDRANT_API_KEY") or None,
-            qdrant_timeout=float(os.getenv("QDRANT_TIMEOUT", "30")),
-            ollama_base_url=_clean_url(os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
-            ollama_embed_model=os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
-            ollama_chat_model=os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct"),
-            grobid_base_url=_clean_url(os.getenv("GROBID_URL", "http://127.0.0.1:8070")),
-            chunk_sizes=_parse_chunk_sizes(os.getenv("CHUNK_SIZES", "2048,768,256")),
-            vector_top_k=int(os.getenv("VECTOR_TOP_K", "24")),
-            bm25_top_k=int(os.getenv("BM25_TOP_K", "24")),
-            fused_top_k=int(os.getenv("FUSED_TOP_K", "16")),
+            collection_name=_get_setting(overrides, "QDRANT_COLLECTION", "academic_corpus"),
+            qdrant_host=_get_setting(overrides, "QDRANT_HOST", "127.0.0.1"),
+            qdrant_port=int(_get_setting(overrides, "QDRANT_PORT", "6333")),
+            qdrant_api_key=_get_setting(overrides, "QDRANT_API_KEY", "") or None,
+            qdrant_timeout=float(_get_setting(overrides, "QDRANT_TIMEOUT", "30")),
+            ollama_base_url=_clean_url(_get_setting(overrides, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
+            ollama_embed_model=_get_setting(overrides, "OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct"),
+            grobid_base_url=_clean_url(_get_setting(overrides, "GROBID_URL", "http://127.0.0.1:8070")),
+            chunk_sizes=_parse_chunk_sizes(_get_setting(overrides, "CHUNK_SIZES", "2048,768,256")),
+            vector_top_k=int(_get_setting(overrides, "VECTOR_TOP_K", "24")),
+            bm25_top_k=int(_get_setting(overrides, "BM25_TOP_K", "24")),
+            fused_top_k=int(_get_setting(overrides, "FUSED_TOP_K", "16")),
         )
 
     def ensure_runtime_dirs(self) -> None:

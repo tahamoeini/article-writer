@@ -6,15 +6,16 @@ from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
 from llama_index.core.schema import MetadataMode
 from llama_index.core.storage.docstore import SimpleDocumentStore
-from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client.http.exceptions import ResponseHandlingException
 from qdrant_client.models import Distance, VectorParams
 
 try:
     from scripts.config import RuntimeSettings
+    from scripts.safe_ollama_embedding import SafeOllamaEmbedding
 except ModuleNotFoundError:
     from config import RuntimeSettings
+    from safe_ollama_embedding import SafeOllamaEmbedding
 
 
 PARSER_EXCLUDED_METADATA_KEYS = ["filename", "source_path", "block_type"]
@@ -133,7 +134,7 @@ def build_hierarchical_index(recreate: bool = False) -> tuple[int, int]:
 
     vector_store = ensure_collection(settings, recreate=recreate)
     docstore = SimpleDocumentStore()
-    embed_model = OllamaEmbedding(
+    embed_model = SafeOllamaEmbedding(
         model_name=settings.ollama_embed_model,
         base_url=settings.ollama_base_url,
         client_kwargs={"trust_env": False},
