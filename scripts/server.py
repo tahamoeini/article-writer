@@ -8,7 +8,6 @@ import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,8 +19,12 @@ from pydantic import BaseModel, Field, model_validator
 
 try:
     from scripts.config import RuntimeSettings
+    from scripts.query_engine import get_engine as get_cached_engine
+    from scripts.query_engine import reset_engine_cache as reset_cached_engine
 except ModuleNotFoundError:
     from config import RuntimeSettings
+    from query_engine import get_engine as get_cached_engine
+    from query_engine import reset_engine_cache as reset_cached_engine
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -120,29 +123,12 @@ def _normalize_overrides(settings_overrides: Mapping[str, Any] | None) -> dict[s
     }
 
 
-def _cache_key(settings_overrides: Mapping[str, Any] | None) -> tuple[tuple[str, str], ...]:
-    return tuple(sorted(_normalize_overrides(settings_overrides).items()))
-
-
-@lru_cache(maxsize=8)
-def _get_engine_cached(cache_key: tuple[tuple[str, str], ...]):
-    overrides = dict(cache_key)
-    try:
-        from scripts.query_engine import get_advanced_query_engine
-    except ModuleNotFoundError:
-        from query_engine import get_advanced_query_engine
-
-    return get_advanced_query_engine(settings_overrides=overrides or None)
-
-
 def get_engine(settings_overrides: Mapping[str, Any] | None = None):
-    return _get_engine_cached(_cache_key(settings_overrides))
+    return get_cached_engine(settings_overrides=settings_overrides)
 
 
 def reset_engine_cache() -> None:
-    _get_engine_cached.cache_clear()
-
-
+    reset_cached_engine()
 def _extract_models(response: Any) -> list[str]:
     models = getattr(response, "models", None)
     if models is None and isinstance(response, Mapping):

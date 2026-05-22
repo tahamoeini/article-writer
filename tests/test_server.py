@@ -301,7 +301,7 @@ class ServerTests(unittest.TestCase):
 
         with (
             patch.object(synthesis.RuntimeSettings, "from_env", return_value=fake_settings),
-            patch.object(synthesis, "get_advanced_query_engine", return_value=SimpleNamespace()),
+            patch.object(synthesis, "get_engine", return_value=SimpleNamespace()),
             patch.object(synthesis, "Ollama", return_value=SimpleNamespace()),
             patch.object(synthesis.SubQuestionQueryEngine, "from_defaults", return_value=FakeMapReduceEngine()),
             patch("sys.stdout", captured_output),
@@ -339,7 +339,7 @@ class ServerTests(unittest.TestCase):
             def query(self, broad_query):
                 return f"final report for {broad_query}"
 
-        def fake_get_advanced_query_engine(settings_overrides=None):
+        def fake_get_engine(settings_overrides=None):
             query_engine_started.set()
             if not allow_query_engine.wait(timeout=2):
                 raise RuntimeError("Timed out waiting to finish query engine loading.")
@@ -355,8 +355,8 @@ class ServerTests(unittest.TestCase):
             patch.object(synthesis.RuntimeSettings, "from_env", return_value=fake_settings),
             patch.object(
                 synthesis,
-                "get_advanced_query_engine",
-                side_effect=fake_get_advanced_query_engine,
+                "get_engine",
+                side_effect=fake_get_engine,
             ),
             patch.object(synthesis, "Ollama", return_value=SimpleNamespace()),
             patch.object(synthesis.SubQuestionQueryEngine, "from_defaults", return_value=FakeMapReduceEngine()),

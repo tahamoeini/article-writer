@@ -9,10 +9,10 @@ from llama_index.llms.ollama import Ollama
 
 try:
     from scripts.config import RuntimeSettings
-    from scripts.query_engine import get_advanced_query_engine
+    from scripts.query_engine import get_engine
 except ModuleNotFoundError:
     from config import RuntimeSettings
-    from query_engine import get_advanced_query_engine
+    from query_engine import get_engine
 
 
 HEARTBEAT_JOIN_TIMEOUT_SECONDS = 0.2
@@ -72,7 +72,7 @@ def run_global_literature_review(
     print(f"Using chat model: {settings.ollama_chat_model}")
     print("Loading query engine and retrieval stack...")
     base_engine = _run_with_periodic_status(
-        lambda: get_advanced_query_engine(settings_overrides=settings_overrides),
+        lambda: get_engine(settings_overrides=settings_overrides),
         waiting_message="Query engine and retrieval stack are still loading",
         status_interval_seconds=status_interval_seconds,
     )

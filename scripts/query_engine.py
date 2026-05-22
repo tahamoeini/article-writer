@@ -1,5 +1,6 @@
 import json
-from typing import Mapping
+from functools import lru_cache
+from typing import Any, Mapping
 
 from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -52,6 +53,30 @@ def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
             return nodes
 
     return [node for node in docstore.docs.values() if len(getattr(node, "text", "")) <= 500]
+
+
+def _cache_key(settings_overrides: Mapping[str, Any] | None = None) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        sorted(
+            (str(key), str(value).strip())
+            for key, value in (settings_overrides or {}).items()
+            if value is not None and str(value).strip()
+        )
+    )
+
+
+@lru_cache(maxsize=8)
+def _get_cached_query_engine(cache_key: tuple[tuple[str, str], ...]) -> CitationAwareQueryEngine:
+    overrides = dict(cache_key)
+    return get_advanced_query_engine(settings_overrides=overrides or None)
+
+
+def get_engine(settings_overrides: Mapping[str, Any] | None = None) -> CitationAwareQueryEngine:
+    return _get_cached_query_engine(_cache_key(settings_overrides))
+
+
+def reset_engine_cache() -> None:
+    _get_cached_query_engine.cache_clear()
 
 
 def get_advanced_query_engine(
