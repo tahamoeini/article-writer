@@ -1,7 +1,6 @@
 import argparse
-import threading
 import time
-from threading import Event
+from threading import Event, Thread
 from typing import Mapping
 
 from llama_index.core.query_engine import SubQuestionQueryEngine
@@ -14,6 +13,9 @@ try:
 except ModuleNotFoundError:
     from config import RuntimeSettings
     from query_engine import get_advanced_query_engine
+
+
+HEARTBEAT_JOIN_TIMEOUT_SECONDS = 0.2
 
 
 def run_global_literature_review(
@@ -64,7 +66,7 @@ def run_global_literature_review(
     print("Submitting the synthesis query to the model...")
     heartbeat_stop = Event()
 
-    def emit_progress_heartbeat() -> None:
+    def emit_periodic_progress_updates() -> None:
         started_at = time.monotonic()
         while not heartbeat_stop.wait(status_interval_seconds):
             elapsed_seconds = int(time.monotonic() - started_at)
@@ -76,7 +78,7 @@ def run_global_literature_review(
 
     heartbeat_thread = None
     if status_interval_seconds > 0:
-        heartbeat_thread = threading.Thread(target=emit_progress_heartbeat, daemon=True)
+        heartbeat_thread = Thread(target=emit_periodic_progress_updates, daemon=True)
         heartbeat_thread.start()
 
     try:
@@ -84,7 +86,7 @@ def run_global_literature_review(
     finally:
         heartbeat_stop.set()
         if heartbeat_thread is not None:
-            heartbeat_thread.join(timeout=0.2)
+            heartbeat_thread.join(timeout=HEARTBEAT_JOIN_TIMEOUT_SECONDS)
 
     print("Synthesis query completed. Rendering final report...")
     print("\n======================= FINAL REPORT =======================\n")
