@@ -56,18 +56,20 @@ The scripts read their settings from environment variables, with these defaults:
 - QDRANT_TIMEOUT: 30
 - OLLAMA_BASE_URL: http://127.0.0.1:11434
 - OLLAMA_EMBED_MODEL: nomic-embed-text
-- OLLAMA_CHAT_MODEL: qwen3.5:35b
+- OLLAMA_CHAT_MODEL: qwen2.5:7b
 - GROBID_URL: http://127.0.0.1:8070
 - CHUNK_SIZES: 2048,768,256
 - VECTOR_TOP_K: 24
 - BM25_TOP_K: 24
 - FUSED_TOP_K: 16
+- INGEST_BATCH_SIZE: 50
 
 The project writes generated artifacts to:
 
 - corpus/processed/
 - index_storage/docstore.json
 - index_storage/leaf_nodes.json
+- index_storage/bm25_index.pkl
 
 ## Choosing Models
 
@@ -80,7 +82,7 @@ Basic users should start with the defaults and only change one setting at a time
 Make sure the selected Ollama models are installed locally before using them:
 
     ollama pull nomic-embed-text
-    ollama pull qwen3.5:35b
+    ollama pull qwen2.5:7b
 
 ## Recommended Workflow
 

@@ -1,4 +1,5 @@
 import json
+import pickle
 from functools import lru_cache
 from typing import Any, Mapping
 
@@ -42,6 +43,18 @@ def load_docstore(settings: RuntimeSettings) -> SimpleDocumentStore:
             f"Missing docstore artifact at {settings.docstore_path}. Run scripts/build_index.py first."
         )
     return SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
+
+
+def load_bm25_retriever(settings: RuntimeSettings, docstore: SimpleDocumentStore) -> BM25Retriever:
+    """Load BM25 retriever from serialized disk file, falling back to building from scratch."""
+    if settings.bm25_index_path.exists():
+        with settings.bm25_index_path.open("rb") as handle:
+            bm25_retriever = pickle.load(handle)  # noqa: S301
+        return bm25_retriever
+
+    # Fallback: build from leaf nodes (expensive, but ensures backward compatibility)
+    leaf_nodes = load_leaf_nodes(settings, docstore)
+    return BM25Retriever.from_defaults(nodes=leaf_nodes, similarity_top_k=settings.bm25_top_k)
 
 
 def load_leaf_nodes(settings: RuntimeSettings, docstore: SimpleDocumentStore):
@@ -106,8 +119,7 @@ def get_advanced_query_engine(
 
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
     vector_retriever = index.as_retriever(similarity_top_k=settings.vector_top_k)
-    leaf_nodes = load_leaf_nodes(settings, docstore)
-    bm25_retriever = BM25Retriever.from_defaults(nodes=leaf_nodes, similarity_top_k=settings.bm25_top_k)
+    bm25_retriever = load_bm25_retriever(settings, docstore)
 
     fusion_retriever = QueryFusionRetriever(
         retrievers=[vector_retriever, bm25_retriever],

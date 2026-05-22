@@ -193,51 +193,62 @@ class ServerTests(unittest.TestCase):
             )
             fake_settings = SimpleNamespace(processed_dir=processed_dir)
 
-            documents = build_index.iter_llama_documents(fake_settings, max_workers=2)
+            processed_files = sorted(processed_dir.glob("*.json"))
+            documents = build_index.load_batch_documents(processed_files, max_workers=2)
 
         self.assertEqual([document.doc_id for document in documents], ["alpha:1", "zeta:1"])
 
     def test_build_index_prints_overall_progress_and_worker_count(self):
-        fake_settings = SimpleNamespace(
-            processed_dir=Path("/tmp/processed"),
-            ollama_embed_model="embed-model",
-            ollama_base_url="http://ollama",
-            collection_name="articles",
-            docstore_path=Path("/tmp/docstore.json"),
-            leaf_nodes_path=Path("/tmp/leaf_nodes.json"),
-            chunk_sizes=(2048, 768, 256),
-            ensure_runtime_dirs=lambda: None,
-        )
-        fake_document = SimpleNamespace(
-            get_metadata_str=lambda mode=None: "metadata",
-        )
         fake_node = SimpleNamespace(node_id="leaf-1")
         captured_output = StringIO()
 
-        with (
-            patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
-            patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
-            patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
-            patch.object(build_index, "iter_llama_documents", return_value=[fake_document]),
-            patch.object(build_index, "parse_hierarchical_nodes", return_value=[fake_node]),
-            patch.object(build_index, "get_leaf_nodes", return_value=[fake_node]),
-            patch.object(build_index, "SimpleDocumentStore") as docstore_class,
-            patch.object(build_index, "StorageContext") as storage_context_class,
-            patch.object(build_index, "VectorStoreIndex"),
-            patch.object(build_index, "persist_leaf_nodes"),
-            patch("sys.stdout", captured_output),
-        ):
-            docstore_class.return_value.add_documents.return_value = None
-            docstore_class.return_value.persist.return_value = None
-            storage_context_class.from_defaults.return_value = SimpleNamespace()
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            processed_dir = tmp_path / "processed"
+            processed_dir.mkdir()
+            # Create a single fake processed file
+            (processed_dir / "doc1.json").write_text(
+                '[{"id":"doc1:1","text":"Hello world","metadata":{"title":"Doc1"}}]',
+                encoding="utf-8",
+            )
 
-            result = build_index.build_hierarchical_index(max_workers=4)
+            fake_settings = SimpleNamespace(
+                processed_dir=processed_dir,
+                ollama_embed_model="embed-model",
+                ollama_base_url="http://ollama",
+                collection_name="articles",
+                docstore_path=tmp_path / "docstore.json",
+                leaf_nodes_path=tmp_path / "leaf_nodes.json",
+                bm25_index_path=tmp_path / "bm25_index.pkl",
+                chunk_sizes=(2048, 768, 256),
+                ingest_batch_size=50,
+                bm25_top_k=24,
+                ensure_runtime_dirs=lambda: None,
+            )
+
+            with (
+                patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
+                patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
+                patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
+                patch.object(build_index, "parse_hierarchical_nodes", return_value=[fake_node]),
+                patch.object(build_index, "get_leaf_nodes", return_value=[fake_node]),
+                patch.object(build_index, "SimpleDocumentStore") as docstore_class,
+                patch.object(build_index, "StorageContext") as storage_context_class,
+                patch.object(build_index, "VectorStoreIndex"),
+                patch.object(build_index, "persist_bm25_index"),
+                patch("sys.stdout", captured_output),
+            ):
+                docstore_class.return_value.add_documents.return_value = None
+                docstore_class.return_value.persist.return_value = None
+                docstore_class.return_value.docs = {"leaf-1": fake_node}
+                storage_context_class.from_defaults.return_value = SimpleNamespace()
+
+                result = build_index.build_hierarchical_index(max_workers=4)
 
         self.assertEqual(result, (1, 1))
         output = captured_output.getvalue()
         self.assertIn("Requested workers/processes: 4", output)
         self.assertIn("Overall index progress: 0% done, 100% remaining", output)
-        self.assertIn("Overall index progress: 45% done, 55% remaining", output)
         self.assertIn("Overall index progress: 95% done, 5% remaining", output)
         self.assertIn("Overall index progress: 100% done, 0% remaining", output)
 
