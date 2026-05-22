@@ -33,6 +33,14 @@ You need the following services available locally:
 
 The repository also includes Docker support for Qdrant, GROBID, and the API service.
 
+## Python Setup
+
+Install the Python dependencies before running the scripts or tests:
+
+    python -m venv .venv
+    . .venv/bin/activate
+    python -m pip install -r requirements.txt
+
 ## Environment Variables
 
 The scripts read their settings from environment variables, with these defaults:
@@ -165,7 +173,7 @@ The docker-compose file starts three services:
 
 Bring the stack up with:
 
-    docker compose up -d
+    docker compose up -d --build
 
 The API container expects Ollama to be reachable from the host machine at http://host.docker.internal:11434.
 

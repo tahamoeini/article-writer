@@ -7,19 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
-    llama-index-core \
-    llama-index-vector-stores-qdrant \
-    llama-index-llms-ollama \
-    llama-index-embeddings-ollama \
-    llama-index-retrievers-bm25 \
-    qdrant-client \
-    pymupdf \
-    fastapi \
-    jinja2 \
-    uvicorn \
-    pydantic \
-    requests
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
