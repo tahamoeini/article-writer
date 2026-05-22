@@ -1,14 +1,16 @@
 import argparse
 import concurrent.futures
 import json
+import shutil
 from pathlib import Path
 from threading import Event
 from typing import Mapping
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
-from llama_index.core.schema import MetadataMode
+from llama_index.core.schema import BaseNode, MetadataMode
 from llama_index.core.storage.docstore import SimpleDocumentStore
+from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client.http.exceptions import ResponseHandlingException
 from qdrant_client.models import Distance, VectorParams
@@ -96,27 +98,20 @@ def documents_from_processed_file(json_file: Path) -> list[Document]:
     return documents
 
 
-def iter_llama_documents(settings: RuntimeSettings, max_workers: int = 1) -> list[Document]:
-    processed_files = sorted(settings.processed_dir.glob("*.json"))
-    if not processed_files:
-        raise FileNotFoundError(
-            f"No processed JSON files found in {settings.processed_dir}. Run scripts/ingest.py first."
-        )
-
+def load_batch_documents(
+    processed_files: list[Path], max_workers: int = 1
+) -> list[Document]:
+    """Load a batch of processed JSON files into Document objects."""
     documents: list[Document] = []
     max_workers = max(1, min(max_workers, MAX_WORKERS, len(processed_files)))
     if max_workers == 1:
-        document_groups = [documents_from_processed_file(json_file) for json_file in processed_files]
+        document_groups = [documents_from_processed_file(f) for f in processed_files]
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             document_groups = list(executor.map(documents_from_processed_file, processed_files))
 
     for document_group in document_groups:
         documents.extend(document_group)
-
-    if not documents:
-        raise ValueError(f"Processed files exist in {settings.processed_dir} but contain no indexable text.")
-
     return documents
 
 
@@ -177,7 +172,15 @@ def parse_hierarchical_nodes(
     return nodes
 
 
-def ensure_collection(settings: RuntimeSettings, recreate: bool) -> QdrantVectorStore:
+def _resolve_embedding_dimension(embed_model: SafeOllamaEmbedding) -> int:
+    """Dynamically determine the embedding vector dimension by running a test embed."""
+    test_vector = embed_model.get_text_embedding("dimension test")
+    return len(test_vector)
+
+
+def ensure_collection(
+    settings: RuntimeSettings, embed_model: SafeOllamaEmbedding, recreate: bool
+) -> QdrantVectorStore:
     client = settings.create_qdrant_client()
     try:
         collection_exists = client.collection_exists(settings.collection_name)
@@ -193,18 +196,44 @@ def ensure_collection(settings: RuntimeSettings, recreate: bool) -> QdrantVector
         collection_exists = False
 
     if not collection_exists:
+        vector_dim = _resolve_embedding_dimension(embed_model)
+        print(f"Creating Qdrant collection with vector dimension: {vector_dim}")
         client.create_collection(
             collection_name=settings.collection_name,
-            vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+            vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
         )
 
     return QdrantVectorStore(client=client, collection_name=settings.collection_name)
 
 
-def persist_leaf_nodes(leaf_nodes, settings: RuntimeSettings) -> None:
-    payload = [node.node_id for node in leaf_nodes]
+def persist_leaf_nodes(leaf_node_ids: list[str], settings: RuntimeSettings) -> None:
     with settings.leaf_nodes_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+        json.dump(leaf_node_ids, handle, indent=2)
+
+
+def persist_bm25_index(leaf_nodes, settings: RuntimeSettings) -> None:
+    """Build and persist the BM25 index to disk for fast loading at query time."""
+    print(f"Building BM25 index from {len(leaf_nodes)} leaf nodes...")
+    bm25_retriever = BM25Retriever.from_defaults(
+        nodes=leaf_nodes, similarity_top_k=settings.bm25_top_k
+    )
+    if settings.bm25_index_path.exists():
+        if settings.bm25_index_path.is_dir():
+            shutil.rmtree(settings.bm25_index_path)
+        else:
+            settings.bm25_index_path.unlink()
+    settings.bm25_index_path.mkdir(parents=True, exist_ok=True)
+    bm25_retriever.persist(str(settings.bm25_index_path))
+    print(f"BM25 index persisted to {settings.bm25_index_path}")
+
+
+def hydrate_docstore_nodes(docstore: SimpleDocumentStore, node_ids: list[str]) -> list[BaseNode]:
+    hydrated_nodes: list[BaseNode] = []
+    for node_id in node_ids:
+        node = docstore.get_node(node_id, raise_error=False)
+        if isinstance(node, BaseNode):
+            hydrated_nodes.append(node)
+    return hydrated_nodes
 
 
 def build_hierarchical_index(
@@ -220,67 +249,135 @@ def build_hierarchical_index(
     if cancel_event and cancel_event.is_set():
         raise InterruptedError("Build index task was cancelled before it started.")
 
-    vector_store = ensure_collection(settings, recreate=recreate)
-    docstore = SimpleDocumentStore()
     embed_model = SafeOllamaEmbedding(
         model_name=settings.ollama_embed_model,
         base_url=settings.ollama_base_url,
         client_kwargs={"trust_env": False},
     )
+    vector_store = ensure_collection(settings, embed_model, recreate=recreate)
 
     print(
         "Starting hierarchical index build. "
         f"Requested workers/processes: {max_workers}; "
+        f"batch size: {settings.ingest_batch_size}; "
         "document preparation and node parsing can use these worker threads; "
         "embedding/vector writes are performed by the single index builder.",
         flush=True,
     )
+
+    # Discover all processed files
+    processed_files = sorted(settings.processed_dir.glob("*.json"))
+    if not processed_files:
+        raise FileNotFoundError(
+            f"No processed JSON files found in {settings.processed_dir}. Run scripts/ingest.py first."
+        )
+
+    batch_size = settings.ingest_batch_size
+    if batch_size < 1:
+        raise ValueError("INGEST_BATCH_SIZE must be greater than or equal to 1.")
+    total_files = len(processed_files)
+    batches = [
+        processed_files[i:i + batch_size]
+        for i in range(0, total_files, batch_size)
+    ]
+    num_batches = len(batches)
+
     print_phase_progress(0, f"reading processed JSON files from {settings.processed_dir}")
-    llama_docs = iter_llama_documents(settings, max_workers=max_workers)
-    print_overall_progress(10, f"loaded {len(llama_docs)} document(s)")
-    chunk_sizes = resolve_chunk_sizes(settings, llama_docs)
+    print(f"Found {total_files} file(s), processing in {num_batches} batch(es) of up to {batch_size}.")
 
-    if cancel_event and cancel_event.is_set():
-        raise InterruptedError("Build index task was cancelled before parsing nodes.")
+    # Incremental batch processing
+    total_nodes = 0
+    all_leaf_node_ids: list[str] = []
+    chunk_sizes: list[int] | None = None
 
-    print(
-        f"Loaded {len(llama_docs)} documents from {settings.processed_dir}. "
-        f"Prepared with {max_workers} worker(s). "
-        f"Using hierarchical chunk sizes: {chunk_sizes}"
-    )
+    if recreate and settings.docstore_path.exists():
+        settings.docstore_path.unlink()
 
-    print_phase_progress(1, f"parsing {len(llama_docs)} document(s) with {max_workers} worker(s)")
-    print(f"Parsing hierarchical nodes with {max_workers} worker(s)...")
-    nodes = parse_hierarchical_nodes(llama_docs, chunk_sizes, max_workers=max_workers)
-    leaf_nodes = get_leaf_nodes(nodes)
-    docstore.add_documents(nodes)
-    print(f"Parsed {len(nodes)} total nodes with {len(leaf_nodes)} leaf nodes.")
-    print_overall_progress(45, f"parsed {len(nodes)} total nodes; {len(leaf_nodes)} leaf nodes ready for embedding")
+    for batch_idx, batch_files in enumerate(batches):
+        if cancel_event and cancel_event.is_set():
+            raise InterruptedError(f"Build index task was cancelled during batch {batch_idx + 1}.")
 
-    if cancel_event and cancel_event.is_set():
-        raise InterruptedError("Build index task was cancelled before vector indexing.")
+        batch_label = f"batch {batch_idx + 1}/{num_batches}"
+        print(f"\n--- {batch_label}: loading {len(batch_files)} file(s) ---")
 
-    storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
+        # Phase 1: Load documents for this batch
+        documents = load_batch_documents(batch_files, max_workers=max_workers)
+        if not documents:
+            print(f"{batch_label}: no indexable text found, skipping.")
+            continue
 
-    print_phase_progress(2, f"embedding and indexing {len(leaf_nodes)} leaf node(s)")
-    print(f"Indexing {len(leaf_nodes)} leaf nodes into collection '{settings.collection_name}'...")
-    VectorStoreIndex(
-        leaf_nodes,
-        storage_context=storage_context,
-        embed_model=embed_model,
-        show_progress=True,
-    )
-    print_overall_progress(95, f"embedded and indexed {len(leaf_nodes)} leaf node(s)")
+        # Resolve chunk sizes on first batch (or if not set)
+        if chunk_sizes is None:
+            chunk_sizes = resolve_chunk_sizes(settings, documents)
+            print(f"Using hierarchical chunk sizes: {chunk_sizes}")
 
-    print_phase_progress(3, "writing docstore and leaf-node manifest")
-    docstore.persist(str(settings.docstore_path))
-    persist_leaf_nodes(leaf_nodes, settings)
+        # Phase 2: Parse hierarchical nodes
+        print(f"{batch_label}: parsing {len(documents)} document(s)...")
+        nodes = parse_hierarchical_nodes(documents, chunk_sizes, max_workers=max_workers)
+        leaf_nodes = get_leaf_nodes(nodes)
+        print(f"{batch_label}: {len(nodes)} total nodes, {len(leaf_nodes)} leaf nodes.")
+
+        if settings.docstore_path.exists():
+            docstore = SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
+            print(f"{batch_label}: reloaded persisted docstore.")
+        else:
+            docstore = SimpleDocumentStore()
+
+        # Add to persistent docstore
+        docstore.add_documents(nodes)
+
+        batch_docstore = SimpleDocumentStore()
+        batch_docstore.add_documents(nodes)
+
+        # Phase 3: Embed and upsert vectors
+        storage_context = StorageContext.from_defaults(
+            vector_store=vector_store,
+            docstore=batch_docstore,
+        )
+        print(f"{batch_label}: embedding and indexing {len(leaf_nodes)} leaf node(s)...")
+        VectorStoreIndex(
+            leaf_nodes,
+            storage_context=storage_context,
+            embed_model=embed_model,
+            show_progress=True,
+        )
+
+        # Track totals
+        total_nodes += len(nodes)
+        all_leaf_node_ids.extend(node.node_id for node in leaf_nodes)
+
+        # Flush docstore to disk after each batch to keep RAM low
+        docstore.persist(str(settings.docstore_path))
+        print(f"{batch_label}: docstore flushed to disk ({len(all_leaf_node_ids)} leaf nodes so far).")
+
+        # Free batch memory
+        del documents, nodes, leaf_nodes, storage_context, batch_docstore, docstore
+
+    if not all_leaf_node_ids:
+        raise ValueError(f"Processed files exist in {settings.processed_dir} but contain no indexable text.")
+
+    # Calculate progress
+    total_leaf_nodes = len(all_leaf_node_ids)
+    print_overall_progress(95, f"embedded and indexed {total_leaf_nodes} leaf node(s) across {num_batches} batch(es)")
+
+    # Phase 4: Persist final manifests and BM25 index
+    print_phase_progress(3, "writing docstore, leaf-node manifest, and BM25 index")
+
+    # Write leaf node manifest
+    persist_leaf_nodes(all_leaf_node_ids, settings)
+
+    # Build and persist BM25 index from all leaf nodes
+    docstore = SimpleDocumentStore.from_persist_path(str(settings.docstore_path))
+    all_leaf_nodes = hydrate_docstore_nodes(docstore, all_leaf_node_ids)
+    persist_bm25_index(all_leaf_nodes, settings)
+
     print_overall_progress(100, "index build complete")
     print(
         "Vector indexing completed. "
-        f"docstore={settings.docstore_path}, leaf_manifest={settings.leaf_nodes_path}"
+        f"docstore={settings.docstore_path}, leaf_manifest={settings.leaf_nodes_path}, "
+        f"bm25_index={settings.bm25_index_path}"
     )
-    return len(nodes), len(leaf_nodes)
+    return total_nodes, total_leaf_nodes
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -296,9 +393,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help=f"Number of processed JSON files to prepare in parallel, up to {MAX_WORKERS}. Embedding remains single-indexed.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override the number of files to process per batch (default from INGEST_BATCH_SIZE env or 50).",
+    )
     return parser
 
 
 if __name__ == "__main__":
     arguments = build_parser().parse_args()
-    build_hierarchical_index(recreate=arguments.recreate, max_workers=arguments.workers)
+    overrides = {}
+    if arguments.batch_size is not None:
+        overrides["INGEST_BATCH_SIZE"] = str(arguments.batch_size)
+    build_hierarchical_index(
+        recreate=arguments.recreate,
+        settings_overrides=overrides or None,
+        max_workers=arguments.workers,
+    )

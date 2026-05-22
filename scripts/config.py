@@ -15,6 +15,13 @@ def _parse_chunk_sizes(raw_value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in parts)
 
 
+def _parse_positive_int(raw_value: str, setting_name: str) -> int:
+    value = int(raw_value)
+    if value < 1:
+        raise ValueError(f"{setting_name} must be greater than or equal to 1.")
+    return value
+
+
 def _get_setting(overrides: Mapping[str, str] | None, key: str, default: str | None = None) -> str:
     if overrides and key in overrides and overrides[key] is not None:
         return str(overrides[key])
@@ -41,6 +48,8 @@ class RuntimeSettings:
     ollama_chat_model: str
     grobid_base_url: str
     chunk_sizes: tuple[int, int, int]
+    bm25_index_path: Path
+    ingest_batch_size: int
     vector_top_k: int
     bm25_top_k: int
     fused_top_k: int
@@ -63,6 +72,7 @@ class RuntimeSettings:
             index_dir=index_dir,
             docstore_path=index_dir / "docstore.json",
             leaf_nodes_path=index_dir / "leaf_nodes.json",
+            bm25_index_path=index_dir / "bm25_index",
             collection_name=_get_setting(overrides, "QDRANT_COLLECTION", "academic_corpus"),
             qdrant_host=_get_setting(overrides, "QDRANT_HOST", "127.0.0.1"),
             qdrant_port=int(_get_setting(overrides, "QDRANT_PORT", "6333")),
@@ -70,8 +80,12 @@ class RuntimeSettings:
             qdrant_timeout=float(_get_setting(overrides, "QDRANT_TIMEOUT", "30")),
             ollama_base_url=_clean_url(_get_setting(overrides, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
             ollama_embed_model=_get_setting(overrides, "OLLAMA_EMBED_MODEL", "nomic-embed-text"),
-            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "gpt-oss:20b"),
+            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "qwen2.5:7b"),
             grobid_base_url=_clean_url(_get_setting(overrides, "GROBID_URL", "http://127.0.0.1:8070")),
+            ingest_batch_size=_parse_positive_int(
+                _get_setting(overrides, "INGEST_BATCH_SIZE", "50"),
+                "INGEST_BATCH_SIZE",
+            ),
             chunk_sizes=_parse_chunk_sizes(_get_setting(overrides, "CHUNK_SIZES", "2048,768,256")),
             vector_top_k=int(_get_setting(overrides, "VECTOR_TOP_K", "24")),
             bm25_top_k=int(_get_setting(overrides, "BM25_TOP_K", "24")),

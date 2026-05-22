@@ -5,12 +5,15 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
+from llama_index.core.schema import TextNode
+from llama_index.retrievers.bm25 import BM25Retriever
 
 from scripts import build_index
 from scripts import ingest
+from scripts import query_engine
 from scripts import server
 from scripts import synthesis
 
@@ -193,53 +196,154 @@ class ServerTests(unittest.TestCase):
             )
             fake_settings = SimpleNamespace(processed_dir=processed_dir)
 
-            documents = build_index.iter_llama_documents(fake_settings, max_workers=2)
+            processed_files = sorted(processed_dir.glob("*.json"))
+            documents = build_index.load_batch_documents(processed_files, max_workers=2)
 
         self.assertEqual([document.doc_id for document in documents], ["alpha:1", "zeta:1"])
 
     def test_build_index_prints_overall_progress_and_worker_count(self):
-        fake_settings = SimpleNamespace(
-            processed_dir=Path("/tmp/processed"),
-            ollama_embed_model="embed-model",
-            ollama_base_url="http://ollama",
-            collection_name="articles",
-            docstore_path=Path("/tmp/docstore.json"),
-            leaf_nodes_path=Path("/tmp/leaf_nodes.json"),
-            chunk_sizes=(2048, 768, 256),
-            ensure_runtime_dirs=lambda: None,
-        )
-        fake_document = SimpleNamespace(
-            get_metadata_str=lambda mode=None: "metadata",
-        )
-        fake_node = SimpleNamespace(node_id="leaf-1")
+        fake_node = TextNode(id_="leaf-1", text="Hello world")
         captured_output = StringIO()
 
-        with (
-            patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
-            patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
-            patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
-            patch.object(build_index, "iter_llama_documents", return_value=[fake_document]),
-            patch.object(build_index, "parse_hierarchical_nodes", return_value=[fake_node]),
-            patch.object(build_index, "get_leaf_nodes", return_value=[fake_node]),
-            patch.object(build_index, "SimpleDocumentStore") as docstore_class,
-            patch.object(build_index, "StorageContext") as storage_context_class,
-            patch.object(build_index, "VectorStoreIndex"),
-            patch.object(build_index, "persist_leaf_nodes"),
-            patch("sys.stdout", captured_output),
-        ):
-            docstore_class.return_value.add_documents.return_value = None
-            docstore_class.return_value.persist.return_value = None
-            storage_context_class.from_defaults.return_value = SimpleNamespace()
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            processed_dir = tmp_path / "processed"
+            processed_dir.mkdir()
+            # Create a single fake processed file
+            (processed_dir / "doc1.json").write_text(
+                '[{"id":"doc1:1","text":"Hello world","metadata":{"title":"Doc1"}}]',
+                encoding="utf-8",
+            )
 
-            result = build_index.build_hierarchical_index(max_workers=4)
+            fake_settings = SimpleNamespace(
+                processed_dir=processed_dir,
+                ollama_embed_model="embed-model",
+                ollama_base_url="http://ollama",
+                collection_name="articles",
+                docstore_path=tmp_path / "docstore.json",
+                leaf_nodes_path=tmp_path / "leaf_nodes.json",
+                bm25_index_path=tmp_path / "bm25_index",
+                chunk_sizes=(2048, 768, 256),
+                ingest_batch_size=50,
+                bm25_top_k=24,
+                ensure_runtime_dirs=lambda: None,
+            )
+
+            with (
+                patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
+                patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
+                patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
+                patch.object(build_index, "parse_hierarchical_nodes", return_value=[fake_node]),
+                patch.object(build_index, "get_leaf_nodes", return_value=[fake_node]),
+                patch.object(build_index, "SimpleDocumentStore") as docstore_class,
+                patch.object(build_index, "StorageContext") as storage_context_class,
+                patch.object(build_index, "VectorStoreIndex"),
+                patch.object(build_index, "persist_bm25_index") as persist_bm25_index,
+                patch("sys.stdout", captured_output),
+            ):
+                aggregate_docstore = MagicMock()
+                aggregate_docstore.add_documents.return_value = None
+                aggregate_docstore.persist.return_value = None
+                batch_docstore = MagicMock()
+                batch_docstore.add_documents.return_value = None
+                final_docstore = MagicMock()
+                final_docstore.get_node.return_value = fake_node
+                docstore_class.side_effect = [aggregate_docstore, batch_docstore]
+                docstore_class.from_persist_path.return_value = final_docstore
+                storage_context_class.from_defaults.return_value = SimpleNamespace()
+
+                result = build_index.build_hierarchical_index(max_workers=4)
 
         self.assertEqual(result, (1, 1))
+        self.assertIs(storage_context_class.from_defaults.call_args.kwargs["docstore"], batch_docstore)
+        aggregate_docstore.add_documents.assert_called_once_with([fake_node])
+        aggregate_docstore.persist.assert_called_once_with(str(fake_settings.docstore_path))
+        persist_bm25_index.assert_called_once_with([fake_node], fake_settings)
         output = captured_output.getvalue()
         self.assertIn("Requested workers/processes: 4", output)
         self.assertIn("Overall index progress: 0% done, 100% remaining", output)
-        self.assertIn("Overall index progress: 45% done, 55% remaining", output)
         self.assertIn("Overall index progress: 95% done, 5% remaining", output)
         self.assertIn("Overall index progress: 100% done, 0% remaining", output)
+
+    def test_runtime_settings_reject_invalid_ingest_batch_size(self):
+        with self.assertRaisesRegex(ValueError, "INGEST_BATCH_SIZE must be greater than or equal to 1"):
+            server.RuntimeSettings.from_env({"INGEST_BATCH_SIZE": "0"})
+
+    def test_build_index_rejects_non_positive_batch_size(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            processed_dir = tmp_path / "processed"
+            processed_dir.mkdir()
+            (processed_dir / "doc1.json").write_text(
+                '[{"id":"doc1:1","text":"Hello world","metadata":{"title":"Doc1"}}]',
+                encoding="utf-8",
+            )
+
+            fake_settings = SimpleNamespace(
+                processed_dir=processed_dir,
+                ollama_embed_model="embed-model",
+                ollama_base_url="http://ollama",
+                collection_name="articles",
+                docstore_path=tmp_path / "docstore.json",
+                leaf_nodes_path=tmp_path / "leaf_nodes.json",
+                bm25_index_path=tmp_path / "bm25_index",
+                chunk_sizes=(2048, 768, 256),
+                ingest_batch_size=0,
+                bm25_top_k=24,
+                ensure_runtime_dirs=lambda: None,
+            )
+
+            with (
+                patch.object(build_index.RuntimeSettings, "from_env", return_value=fake_settings),
+                patch.object(build_index, "ensure_collection", return_value=SimpleNamespace()),
+                patch.object(build_index, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
+            ):
+                with self.assertRaisesRegex(ValueError, "INGEST_BATCH_SIZE must be greater than or equal to 1"):
+                    build_index.build_hierarchical_index()
+
+    def test_load_bm25_retriever_applies_current_top_k_to_persisted_index(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bm25_index_path = tmp_path / "bm25_index"
+            bm25_index_path.mkdir()
+            persisted_retriever = BM25Retriever.from_defaults(
+                nodes=[TextNode(id_="leaf-1", text="hello world")],
+                similarity_top_k=1,
+            )
+            persisted_retriever.persist(str(bm25_index_path))
+
+            fake_settings = SimpleNamespace(
+                bm25_index_path=bm25_index_path,
+                bm25_top_k=5,
+            )
+
+            loaded_retriever = query_engine.load_bm25_retriever(
+                fake_settings,
+                SimpleNamespace(),
+            )
+
+        self.assertEqual(loaded_retriever.similarity_top_k, 5)
+
+    def test_load_bm25_retriever_fallback_hydrates_manifest_ids(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            leaf_nodes_path = tmp_path / "leaf_nodes.json"
+            leaf_nodes_path.write_text('["leaf-1"]', encoding="utf-8")
+            fake_settings = SimpleNamespace(
+                bm25_index_path=tmp_path / "missing_bm25_index",
+                leaf_nodes_path=leaf_nodes_path,
+                bm25_top_k=5,
+            )
+            fake_docstore = MagicMock()
+            fake_docstore.get_node.return_value = TextNode(id_="leaf-1", text="hello world")
+
+            with patch.object(query_engine.BM25Retriever, "from_defaults", return_value=SimpleNamespace()) as from_defaults:
+                query_engine.load_bm25_retriever(fake_settings, fake_docstore)
+
+        hydrated_nodes = from_defaults.call_args.kwargs["nodes"]
+        self.assertEqual(len(hydrated_nodes), 1)
+        self.assertIsInstance(hydrated_nodes[0], TextNode)
+        self.assertEqual(hydrated_nodes[0].node_id, "leaf-1")
 
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
