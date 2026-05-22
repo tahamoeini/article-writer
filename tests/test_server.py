@@ -103,6 +103,69 @@ class ServerTests(unittest.TestCase):
         self.assertIn("force=True", task["log_text"])
         self.assertIn("qwen-test", task["log_text"])
 
+    def test_build_index_task_captures_logs_and_result(self):
+        task_started = threading.Event()
+        allow_finish = threading.Event()
+
+        def fake_run(recreate, settings_overrides=None):
+            task_started.set()
+            if not allow_finish.wait(timeout=2):
+                raise RuntimeError("Timed out waiting to finish build-index task.")
+            print(f"recreate={recreate}")
+            print(f"settings={settings_overrides['OLLAMA_CHAT_MODEL']}")
+            return {"indexed": 3}
+
+        with patch.object(server, "_run_build_index", side_effect=fake_run):
+            response = self.client.post(
+                "/v1/tasks/build-index",
+                json={
+                    "recreate": True,
+                    "settings_overrides": {"OLLAMA_CHAT_MODEL": "qwen-build"},
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(task_started.wait(timeout=2))
+            self.assertEqual(response.json()["status"], "running")
+            allow_finish.set()
+            task = self.wait_for_task(response.json()["id"])
+
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["result"], {"indexed": 3})
+        self.assertIn("recreate=True", task["log_text"])
+        self.assertIn("qwen-build", task["log_text"])
+
+    def test_synthesis_task_captures_logs_and_result(self):
+        task_started = threading.Event()
+        allow_finish = threading.Event()
+
+        def fake_run(query, verbose, settings_overrides=None):
+            task_started.set()
+            if not allow_finish.wait(timeout=2):
+                raise RuntimeError("Timed out waiting to finish synthesis task.")
+            print(f"query={query}")
+            print(f"verbose={verbose}")
+            return "synthesis-complete"
+
+        with patch.object(server, "_run_synthesis", side_effect=fake_run):
+            response = self.client.post(
+                "/v1/tasks/synthesis",
+                json={
+                    "query": "cancer treatment advances",
+                    "verbose": True,
+                    "settings_overrides": {"OLLAMA_CHAT_MODEL": "qwen-synth"},
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(task_started.wait(timeout=2))
+            self.assertEqual(response.json()["status"], "running")
+            allow_finish.set()
+            task = self.wait_for_task(response.json()["id"])
+
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["result"], "synthesis-complete")
+        self.assertIn("query=cancer treatment advances", task["log_text"])
+        self.assertIn("verbose=True", task["log_text"])
+
     def test_concurrent_tasks_run_one_at_a_time(self):
         first_ready = threading.Event()
         first_release = threading.Event()
