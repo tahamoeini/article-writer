@@ -46,6 +46,41 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"models": ["alpha", "beta"]})
 
+    def test_settings_defaults_endpoint_returns_expected_payload(self):
+        fake_settings = SimpleNamespace(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            collection_name="articles",
+            ollama_base_url="http://ollama",
+            ollama_embed_model="embed-model",
+            ollama_chat_model="chat-model",
+            grobid_base_url="http://grobid",
+            chunk_sizes=(2048, 768, 256),
+            vector_top_k=24,
+            bm25_top_k=12,
+            fused_top_k=8,
+        )
+        with patch.object(server.RuntimeSettings, "from_env", return_value=fake_settings):
+            response = self.client.get("/v1/settings/defaults")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "qdrant_host": "localhost",
+                "qdrant_port": 6333,
+                "collection_name": "articles",
+                "ollama_base_url": "http://ollama",
+                "ollama_embed_model": "embed-model",
+                "ollama_chat_model": "chat-model",
+                "grobid_base_url": "http://grobid",
+                "chunk_sizes": "2048,768,256",
+                "vector_top_k": 24,
+                "bm25_top_k": 12,
+                "fused_top_k": 8,
+            },
+        )
+
     def test_ingest_task_captures_logs_and_result(self):
         def fake_run(force, settings_overrides=None):
             print(f"force={force}")
