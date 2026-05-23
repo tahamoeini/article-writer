@@ -32,6 +32,9 @@ class CitationAwareQueryEngine:
     def __init__(self, query_engine):
         self._query_engine = query_engine
 
+    def __getattr__(self, name: str):
+        return getattr(self._query_engine, name)
+
     def query(self, prompt: str):
         scoped_prompt = f"{SYSTEM_PROMPT}\n\nResearch question:\n{prompt.strip()}"
         return self._query_engine.query(scoped_prompt)

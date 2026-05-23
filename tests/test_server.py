@@ -381,6 +381,17 @@ class ServerTests(unittest.TestCase):
 
         self.assertIs(fusion_retriever.call_args.kwargs["llm"], fake_llm)
 
+    def test_citation_aware_query_engine_delegates_lifecycle_attributes(self):
+        callback_manager = SimpleNamespace(name="callbacks")
+        base_engine = SimpleNamespace(
+            callback_manager=callback_manager,
+            query=lambda prompt: prompt,
+        )
+        wrapped_engine = query_engine.CitationAwareQueryEngine(base_engine)
+
+        self.assertIs(wrapped_engine.callback_manager, callback_manager)
+        self.assertIn("Research question:\nWhat is cited?", wrapped_engine.query("What is cited?"))
+
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
         allow_finish = threading.Event()
