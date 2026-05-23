@@ -1,5 +1,4 @@
 import json
-import os
 from functools import lru_cache
 from typing import Any, Mapping
 
@@ -27,13 +26,6 @@ If the context is insufficient, reply exactly: The retrieved corpus does not con
 Every substantive claim must include an inline citation in this format: [Author, Year, \"Title\", p. X, para. Y]
 Prefer concise synthesis over speculation.
 """
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class CitationAwareQueryEngine:
@@ -147,8 +139,8 @@ def get_advanced_query_engine(
     settings_overrides: Mapping[str, str] | None = None,
 ) -> CitationAwareQueryEngine:
     settings = RuntimeSettings.from_env(settings_overrides)
-    use_bm25 = _env_flag("ENABLE_BM25", True)
-    use_auto_merge = _env_flag("ENABLE_AUTO_MERGE", False)
+    use_bm25 = settings.enable_bm25
+    use_auto_merge = settings.enable_auto_merge
 
     docstore: SimpleDocumentStore | None = None
     if use_auto_merge or (use_bm25 and not settings.bm25_index_path.is_dir()):
@@ -186,7 +178,7 @@ def get_advanced_query_engine(
             retrievers=[vector_retriever, bm25_retriever],
             llm=llm,
             similarity_top_k=settings.fused_top_k,
-            num_queries=2,
+            num_queries=settings.fusion_num_queries,
             mode="reciprocal_rerank",
             use_async=True,
             verbose=False,

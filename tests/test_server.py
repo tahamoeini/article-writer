@@ -70,6 +70,10 @@ class ServerTests(unittest.TestCase):
             vector_top_k=24,
             bm25_top_k=12,
             fused_top_k=8,
+            enable_bm25=True,
+            enable_auto_merge=False,
+            fusion_num_queries=1,
+            synthesis_fallback_model="qwen3:8b",
         )
         with patch.object(server.RuntimeSettings, "from_env", return_value=fake_settings):
             response = self.client.get("/v1/settings/defaults")
@@ -89,6 +93,10 @@ class ServerTests(unittest.TestCase):
                 "vector_top_k": 24,
                 "bm25_top_k": 12,
                 "fused_top_k": 8,
+                "enable_bm25": True,
+                "enable_auto_merge": False,
+                "fusion_num_queries": 1,
+                "synthesis_fallback_model": "qwen3:8b",
             },
         )
 
@@ -352,6 +360,10 @@ class ServerTests(unittest.TestCase):
             vector_top_k=3,
             bm25_top_k=5,
             fused_top_k=7,
+            enable_bm25=True,
+            enable_auto_merge=False,
+            fusion_num_queries=2,
+            bm25_index_path=Path("/tmp/missing-bm25"),
             create_qdrant_client=lambda: SimpleNamespace(collection_exists=lambda collection: True),
             create_ollama_client=lambda timeout=None: SimpleNamespace(),
             create_ollama_async_client=lambda timeout=None: SimpleNamespace(),

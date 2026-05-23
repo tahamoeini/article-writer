@@ -409,6 +409,10 @@ def _settings_defaults() -> dict[str, Any]:
         "vector_top_k": settings.vector_top_k,
         "bm25_top_k": settings.bm25_top_k,
         "fused_top_k": settings.fused_top_k,
+        "enable_bm25": settings.enable_bm25,
+        "enable_auto_merge": settings.enable_auto_merge,
+        "fusion_num_queries": settings.fusion_num_queries,
+        "synthesis_fallback_model": settings.synthesis_fallback_model,
     }
 
 
@@ -422,16 +426,54 @@ async def index(request: Request):
 
 
 @app.get("/health")
-async def health_check():
+async def health_check(deep: bool = Query(default=False)):
+    checks: dict[str, Any] = {}
+    degraded = False
+
+    settings = RuntimeSettings.from_env()
+
     try:
-        get_engine()
+        qdrant_client = settings.create_qdrant_client()
+        collection_exists = qdrant_client.collection_exists(settings.collection_name)
+        checks["qdrant"] = {
+            "ok": collection_exists,
+            "collection": settings.collection_name,
+        }
+        if not collection_exists:
+            degraded = True
     except Exception as exc:
-        return {
-            "status": "degraded",
+        degraded = True
+        checks["qdrant"] = {
+            "ok": False,
             "detail": str(exc),
         }
 
-    return {"status": "ok"}
+    try:
+        settings.create_ollama_client(timeout=min(OLLAMA_LIST_TIMEOUT_SECONDS, 10.0)).list()
+        checks["ollama"] = {"ok": True}
+    except Exception as exc:
+        degraded = True
+        checks["ollama"] = {
+            "ok": False,
+            "detail": str(exc),
+        }
+
+    if deep:
+        try:
+            get_engine()
+            checks["query_engine"] = {"ok": True}
+        except Exception as exc:
+            degraded = True
+            checks["query_engine"] = {
+                "ok": False,
+                "detail": str(exc),
+            }
+
+    return {
+        "status": "degraded" if degraded else "ok",
+        "deep": deep,
+        "checks": checks,
+    }
 
 
 @app.get("/v1/settings/defaults")

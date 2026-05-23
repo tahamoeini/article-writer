@@ -22,6 +22,32 @@ def _parse_positive_int(raw_value: str, setting_name: str) -> int:
     return value
 
 
+def _parse_bounded_int(
+    raw_value: str,
+    setting_name: str,
+    *,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
+    value = int(raw_value)
+    if value < minimum:
+        raise ValueError(f"{setting_name} must be greater than or equal to {minimum}.")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{setting_name} must be less than or equal to {maximum}.")
+    return value
+
+
+def _parse_bool(raw_value: str, setting_name: str) -> bool:
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{setting_name} must be one of: 1, 0, true, false, yes, no, on, off."
+    )
+
+
 def _get_setting(overrides: Mapping[str, str] | None, key: str, default: str | None = None) -> str:
     if overrides and key in overrides and overrides[key] is not None:
         return str(overrides[key])
@@ -53,6 +79,10 @@ class RuntimeSettings:
     vector_top_k: int
     bm25_top_k: int
     fused_top_k: int
+    enable_bm25: bool
+    enable_auto_merge: bool
+    fusion_num_queries: int
+    synthesis_fallback_model: str
 
     @property
     def grobid_process_url(self) -> str:
@@ -80,7 +110,7 @@ class RuntimeSettings:
             qdrant_timeout=float(_get_setting(overrides, "QDRANT_TIMEOUT", "30")),
             ollama_base_url=_clean_url(_get_setting(overrides, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
             ollama_embed_model=_get_setting(overrides, "OLLAMA_EMBED_MODEL", "nomic-embed-text"),
-            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "gpt-oss:20b"),
+            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "qwen3:8b"),
             grobid_base_url=_clean_url(_get_setting(overrides, "GROBID_URL", "http://127.0.0.1:8070")),
             ingest_batch_size=_parse_positive_int(
                 _get_setting(overrides, "INGEST_BATCH_SIZE", "50"),
@@ -90,6 +120,24 @@ class RuntimeSettings:
             vector_top_k=int(_get_setting(overrides, "VECTOR_TOP_K", "24")),
             bm25_top_k=int(_get_setting(overrides, "BM25_TOP_K", "24")),
             fused_top_k=int(_get_setting(overrides, "FUSED_TOP_K", "16")),
+            enable_bm25=_parse_bool(
+                _get_setting(overrides, "ENABLE_BM25", "1"),
+                "ENABLE_BM25",
+            ),
+            enable_auto_merge=_parse_bool(
+                _get_setting(overrides, "ENABLE_AUTO_MERGE", "0"),
+                "ENABLE_AUTO_MERGE",
+            ),
+            fusion_num_queries=_parse_bounded_int(
+                _get_setting(overrides, "FUSION_NUM_QUERIES", "1"),
+                "FUSION_NUM_QUERIES",
+                minimum=1,
+                maximum=4,
+            ),
+            synthesis_fallback_model=(
+                _get_setting(overrides, "OLLAMA_SYNTHESIS_FALLBACK_MODEL", "qwen3:8b").strip()
+                or "qwen3:8b"
+            ),
         )
 
     def ensure_runtime_dirs(self) -> None:

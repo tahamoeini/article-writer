@@ -56,12 +56,16 @@ The scripts read their settings from environment variables, with these defaults:
 - QDRANT_TIMEOUT: 30
 - OLLAMA_BASE_URL: http://127.0.0.1:11434
 - OLLAMA_EMBED_MODEL: nomic-embed-text
-- OLLAMA_CHAT_MODEL: gpt-oss:20b
+- OLLAMA_CHAT_MODEL: qwen3:8b
 - GROBID_URL: http://127.0.0.1:8070
 - CHUNK_SIZES: 2048,768,256
 - VECTOR_TOP_K: 24
 - BM25_TOP_K: 24
 - FUSED_TOP_K: 16
+- ENABLE_BM25: 1
+- ENABLE_AUTO_MERGE: 0
+- FUSION_NUM_QUERIES: 1
+- OLLAMA_SYNTHESIS_FALLBACK_MODEL: qwen3:8b
 - INGEST_BATCH_SIZE: 50
 
 The project writes generated artifacts to:
@@ -78,6 +82,8 @@ Basic users should start with the defaults and only change one setting at a time
 - Chat model: used for model chat, corpus answers, and synthesis reports. Larger models usually produce better answers but are slower and need more memory.
 - Embedding model: used to build and search the vector index. If you change OLLAMA_EMBED_MODEL after indexing, rebuild the index so stored vectors match the selected model.
 - Retrieval options: VECTOR_TOP_K controls semantic matches, BM25_TOP_K controls keyword matches, and FUSED_TOP_K controls the final merged candidates. Keep the defaults unless you are tuning quality or speed.
+- Memory/speed toggles: ENABLE_BM25 and ENABLE_AUTO_MERGE let you trade retrieval quality for lower memory usage. FUSION_NUM_QUERIES controls query expansion cost; set 1 for fastest behavior.
+- Synthesis resilience: OLLAMA_SYNTHESIS_FALLBACK_MODEL is used automatically when the primary synthesis model cannot be loaded due to memory limits.
 
 Make sure the selected Ollama models are installed locally before using them:
 

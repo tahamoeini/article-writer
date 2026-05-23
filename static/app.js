@@ -11,6 +11,7 @@ let selectedTaskId = null;
 let taskPollTimer = null;
 let chatMessages = [];
 let lastLogText = "";
+const TASK_POLL_INTERVAL_MS = 1500;
 
 function currentSettings() {
   return {
@@ -25,6 +26,10 @@ function currentSettings() {
     VECTOR_TOP_K: document.getElementById("vector-top-k").value.trim(),
     BM25_TOP_K: document.getElementById("bm25-top-k").value.trim(),
     FUSED_TOP_K: document.getElementById("fused-top-k").value.trim(),
+    FUSION_NUM_QUERIES: document.getElementById("fusion-num-queries").value.trim(),
+    ENABLE_BM25: document.getElementById("enable-bm25").value,
+    ENABLE_AUTO_MERGE: document.getElementById("enable-auto-merge").value,
+    OLLAMA_SYNTHESIS_FALLBACK_MODEL: document.getElementById("synthesis-fallback-model").value.trim(),
   };
 }
 
@@ -215,7 +220,7 @@ async function cancelCurrentTask() {
 
 function startTaskPolling() {
   if (!taskPollTimer) {
-    taskPollTimer = window.setInterval(refreshTasks, 1000);
+    taskPollTimer = window.setInterval(refreshTasks, TASK_POLL_INTERVAL_MS);
   }
 }
 

@@ -90,6 +90,32 @@
             <small>Final combined matches passed to the answer model.</small>
           </label>
           <label>
+            Fusion query count
+            <input id="fusion-num-queries" type="number" min="1" max="4" value="{{ defaults.fusion_num_queries }}" />
+            <small>Lower values are faster and lighter. Use 1 for speed-first behavior.</small>
+          </label>
+          <label>
+            Enable BM25
+            <select id="enable-bm25">
+              <option value="1" {% if defaults.enable_bm25 %}selected{% endif %}>On</option>
+              <option value="0" {% if not defaults.enable_bm25 %}selected{% endif %}>Off</option>
+            </select>
+            <small>Turn off for a faster, lower-memory vector-only retrieval path.</small>
+          </label>
+          <label>
+            Enable auto-merge
+            <select id="enable-auto-merge">
+              <option value="1" {% if defaults.enable_auto_merge %}selected{% endif %}>On</option>
+              <option value="0" {% if not defaults.enable_auto_merge %}selected{% endif %}>Off</option>
+            </select>
+            <small>Useful for quality on complex hierarchies, but costs extra memory.</small>
+          </label>
+          <label>
+            Synthesis fallback model
+            <input id="synthesis-fallback-model" value="{{ defaults.synthesis_fallback_model }}" />
+            <small>Used automatically when synthesis fails due to model memory requirements.</small>
+          </label>
+          <label>
             Chat model
             <select id="chat-model">
               <option value="{{ defaults.ollama_chat_model }}">{{ defaults.ollama_chat_model }}</option>
