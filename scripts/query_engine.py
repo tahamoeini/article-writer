@@ -180,7 +180,7 @@ def get_advanced_query_engine(
             similarity_top_k=settings.fused_top_k,
             num_queries=settings.fusion_num_queries,
             mode="reciprocal_rerank",
-            use_async=True,
+            use_async=False,
             verbose=False,
         )
 
@@ -197,7 +197,7 @@ def get_advanced_query_engine(
     synthesizer = get_response_synthesizer(
         llm=llm,
         response_mode="tree_summarize",
-        use_async=True,
+        use_async=False,
     )
     query_engine = RetrieverQueryEngine(
         retriever=retriever,

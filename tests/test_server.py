@@ -383,7 +383,7 @@ class ServerTests(unittest.TestCase):
             patch.object(query_engine, "QueryFusionRetriever", return_value=SimpleNamespace()) as fusion_retriever,
             patch.object(query_engine, "StorageContext") as storage_context,
             patch.object(query_engine, "AutoMergingRetriever", return_value=SimpleNamespace()),
-            patch.object(query_engine, "get_response_synthesizer", return_value=SimpleNamespace()),
+            patch.object(query_engine, "get_response_synthesizer", return_value=SimpleNamespace()) as response_synthesizer_factory,
             patch.object(query_engine, "RetrieverQueryEngine", return_value=SimpleNamespace()),
         ):
             vector_store_index.from_vector_store.return_value = fake_index
@@ -392,6 +392,8 @@ class ServerTests(unittest.TestCase):
             query_engine.get_advanced_query_engine()
 
         self.assertIs(fusion_retriever.call_args.kwargs["llm"], fake_llm)
+        self.assertFalse(fusion_retriever.call_args.kwargs["use_async"])
+        self.assertFalse(response_synthesizer_factory.call_args.kwargs["use_async"])
 
     def test_citation_aware_query_engine_delegates_lifecycle_attributes(self):
         callback_manager = SimpleNamespace(name="callbacks")
