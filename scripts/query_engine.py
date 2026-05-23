@@ -163,6 +163,7 @@ def get_advanced_query_engine(
 
     fusion_retriever = QueryFusionRetriever(
         retrievers=[vector_retriever, bm25_retriever],
+        llm=llm,
         similarity_top_k=settings.fused_top_k,
         num_queries=2,
         mode="reciprocal_rerank",

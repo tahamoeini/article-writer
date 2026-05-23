@@ -343,6 +343,44 @@ class ServerTests(unittest.TestCase):
         self.assertIsInstance(hydrated_nodes[0], TextNode)
         self.assertEqual(hydrated_nodes[0].node_id, "leaf-1")
 
+    def test_advanced_query_engine_passes_local_llm_to_fusion_retriever(self):
+        fake_settings = SimpleNamespace(
+            collection_name="articles",
+            ollama_embed_model="embed-model",
+            ollama_chat_model="chat-model",
+            ollama_base_url="http://ollama",
+            vector_top_k=3,
+            bm25_top_k=5,
+            fused_top_k=7,
+            create_qdrant_client=lambda: SimpleNamespace(collection_exists=lambda collection: True),
+            create_ollama_client=lambda timeout=None: SimpleNamespace(),
+            create_ollama_async_client=lambda timeout=None: SimpleNamespace(),
+        )
+        fake_llm = SimpleNamespace(name="local-ollama-llm")
+        fake_vector_retriever = SimpleNamespace(name="vector")
+        fake_index = SimpleNamespace(as_retriever=lambda similarity_top_k: fake_vector_retriever)
+
+        with (
+            patch.object(query_engine.RuntimeSettings, "from_env", return_value=fake_settings),
+            patch.object(query_engine, "load_docstore", return_value=SimpleNamespace()),
+            patch.object(query_engine, "QdrantVectorStore", return_value=SimpleNamespace()),
+            patch.object(query_engine, "SafeOllamaEmbedding", return_value=SimpleNamespace()),
+            patch.object(query_engine, "Ollama", return_value=fake_llm),
+            patch.object(query_engine, "VectorStoreIndex") as vector_store_index,
+            patch.object(query_engine, "load_bm25_retriever", return_value=SimpleNamespace(name="bm25")),
+            patch.object(query_engine, "QueryFusionRetriever", return_value=SimpleNamespace()) as fusion_retriever,
+            patch.object(query_engine, "StorageContext") as storage_context,
+            patch.object(query_engine, "AutoMergingRetriever", return_value=SimpleNamespace()),
+            patch.object(query_engine, "get_response_synthesizer", return_value=SimpleNamespace()),
+            patch.object(query_engine, "RetrieverQueryEngine", return_value=SimpleNamespace()),
+        ):
+            vector_store_index.from_vector_store.return_value = fake_index
+            storage_context.from_defaults.return_value = SimpleNamespace()
+
+            query_engine.get_advanced_query_engine()
+
+        self.assertIs(fusion_retriever.call_args.kwargs["llm"], fake_llm)
+
     def test_synthesis_task_captures_logs_and_result(self):
         task_started = threading.Event()
         allow_finish = threading.Event()
