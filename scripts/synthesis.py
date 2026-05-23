@@ -3,6 +3,7 @@ import time
 from threading import Event, Thread
 from typing import Mapping
 
+from llama_index.core.question_gen import LLMQuestionGenerator
 from llama_index.core.query_engine import SubQuestionQueryEngine
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.llms.ollama import Ollama
@@ -95,10 +96,12 @@ def run_global_literature_review(
             ),
         ),
     )
+    question_generator = LLMQuestionGenerator.from_defaults(llm=llm)
 
     map_reduce_engine = SubQuestionQueryEngine.from_defaults(
         query_engine_tools=[corpus_tool],
         llm=llm,
+        question_gen=question_generator,
         verbose=verbose,
     )
 
