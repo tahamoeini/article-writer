@@ -71,6 +71,7 @@ def _build_sub_question_engine(base_engine, llm: Ollama, verbose: bool):
         llm=llm,
         question_gen=question_generator,
         verbose=verbose,
+        use_async=False,
     )
 
 

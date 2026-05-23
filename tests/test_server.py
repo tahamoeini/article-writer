@@ -575,6 +575,20 @@ class ServerTests(unittest.TestCase):
             captured_output.getvalue(),
         )
 
+    def test_build_sub_question_engine_disables_async_subqueries(self):
+        with (
+            patch.object(synthesis, "QueryEngineTool", return_value=SimpleNamespace(metadata=SimpleNamespace(name="academic_corpus_tool"))),
+            patch.object(synthesis, "ToolMetadata", return_value=SimpleNamespace(name="academic_corpus_tool")),
+            patch.object(synthesis.LLMQuestionGenerator, "from_defaults", return_value=SimpleNamespace()) as question_generator_factory,
+            patch.object(synthesis.SubQuestionQueryEngine, "from_defaults", return_value=SimpleNamespace()) as engine_factory,
+        ):
+            llm = SimpleNamespace()
+            base_engine = SimpleNamespace()
+            synthesis._build_sub_question_engine(base_engine, llm, verbose=True)
+
+        self.assertIs(question_generator_factory.call_args.kwargs["llm"], llm)
+        self.assertFalse(engine_factory.call_args.kwargs["use_async"])
+
     def test_concurrent_tasks_run_one_at_a_time(self):
         first_ready = threading.Event()
         first_release = threading.Event()
