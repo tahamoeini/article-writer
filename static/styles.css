@@ -126,6 +126,45 @@ label small {
   margin-top: 12px;
 }
 
+.preset-card,
+.advanced-settings {
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.preset-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.preset-summary,
+.advanced-note {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.advanced-settings {
+  margin-top: 8px;
+}
+
+.advanced-settings summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.advanced-settings[open] summary {
+  margin-bottom: 12px;
+}
+
+.advanced-note {
+  margin-bottom: 16px;
+}
+
 input,
 select,
 textarea {

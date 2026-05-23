@@ -12,6 +12,55 @@ let taskPollTimer = null;
 let chatMessages = [];
 let lastLogText = "";
 const TASK_POLL_INTERVAL_MS = 1500;
+const PRESET_FIELD_MAP = {
+  VECTOR_TOP_K: "vector-top-k",
+  BM25_TOP_K: "bm25-top-k",
+  FUSED_TOP_K: "fused-top-k",
+  FUSION_NUM_QUERIES: "fusion-num-queries",
+  ENABLE_BM25: "enable-bm25",
+  ENABLE_AUTO_MERGE: "enable-auto-merge",
+};
+const PRESET_OPTIONS = {
+  balanced: {
+    summary:
+      "Balanced is the recommended default. It uses semantic and keyword search together without the heavier merge step.",
+    values: {
+      VECTOR_TOP_K: "24",
+      BM25_TOP_K: "24",
+      FUSED_TOP_K: "16",
+      FUSION_NUM_QUERIES: "1",
+      ENABLE_BM25: "1",
+      ENABLE_AUTO_MERGE: "0",
+    },
+  },
+  fast: {
+    summary:
+      "Faster and lighter uses fewer search candidates and disables extra keyword and merge work to save time and memory.",
+    values: {
+      VECTOR_TOP_K: "12",
+      BM25_TOP_K: "8",
+      FUSED_TOP_K: "8",
+      FUSION_NUM_QUERIES: "1",
+      ENABLE_BM25: "0",
+      ENABLE_AUTO_MERGE: "0",
+    },
+  },
+  deep: {
+    summary:
+      "Deeper search spends more time searching and combining evidence. Use it when answer quality matters more than speed.",
+    values: {
+      VECTOR_TOP_K: "24",
+      BM25_TOP_K: "24",
+      FUSED_TOP_K: "18",
+      FUSION_NUM_QUERIES: "2",
+      ENABLE_BM25: "1",
+      ENABLE_AUTO_MERGE: "1",
+    },
+  },
+};
+
+const runtimePresetEl = document.getElementById("runtime-preset");
+const runtimePresetSummaryEl = document.getElementById("runtime-preset-summary");
 
 function currentSettings() {
   return {
@@ -74,6 +123,48 @@ function fillModelSelect(selectId, models) {
     select.appendChild(option);
   });
   select.value = currentValue || options[0];
+}
+
+function settingControlValue(controlId) {
+  return document.getElementById(controlId).value.trim();
+}
+
+function detectRuntimePreset() {
+  for (const [presetName, preset] of Object.entries(PRESET_OPTIONS)) {
+    const matches = Object.entries(preset.values).every(
+      ([settingKey, expectedValue]) => settingControlValue(PRESET_FIELD_MAP[settingKey]) === expectedValue
+    );
+    if (matches) {
+      return presetName;
+    }
+  }
+  return "custom";
+}
+
+function updateRuntimePresetSummary() {
+  const presetName = detectRuntimePreset();
+  runtimePresetEl.value = presetName;
+  if (presetName === "custom") {
+    runtimePresetSummaryEl.textContent =
+      "Custom keeps your manual tuning. Use this only if you want direct control over the advanced search settings.";
+    return;
+  }
+
+  runtimePresetSummaryEl.textContent = PRESET_OPTIONS[presetName].summary;
+}
+
+function applyRuntimePreset(presetName) {
+  const preset = PRESET_OPTIONS[presetName];
+  if (!preset) {
+    updateRuntimePresetSummary();
+    return;
+  }
+
+  Object.entries(preset.values).forEach(([settingKey, nextValue]) => {
+    document.getElementById(PRESET_FIELD_MAP[settingKey]).value = nextValue;
+  });
+
+  updateRuntimePresetSummary();
 }
 
 async function withButtonBusy(buttonId, busyText, action) {
@@ -334,6 +425,14 @@ document.getElementById("models-button").addEventListener("click", loadModels);
 document.getElementById("health-button").addEventListener("click", checkHealth);
 document.getElementById("refresh-tasks-button").addEventListener("click", refreshTasks);
 cancelTaskButtonEl.addEventListener("click", cancelCurrentTask);
+runtimePresetEl.addEventListener("change", () => {
+  if (runtimePresetEl.value !== "custom") {
+    applyRuntimePreset(runtimePresetEl.value);
+    return;
+  }
+
+  updateRuntimePresetSummary();
+});
 document.getElementById("refresh-pdfs-button").addEventListener("click", loadPdfFiles);
 document.getElementById("select-all-pdfs-button").addEventListener("click", () => {
   Array.from(pdfFileListEl.options).forEach((option) => {
@@ -384,6 +483,13 @@ document.getElementById("chat-button").addEventListener("click", () =>
   withButtonBusy("chat-button", "Sending...", sendChatMessage)
 );
 
+Object.values(PRESET_FIELD_MAP).forEach((controlId) => {
+  const control = document.getElementById(controlId);
+  control.addEventListener("input", updateRuntimePresetSummary);
+  control.addEventListener("change", updateRuntimePresetSummary);
+});
+
 renderChat();
+updateRuntimePresetSummary();
 loadPdfFiles();
 refreshTasks();

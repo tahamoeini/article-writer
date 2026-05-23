@@ -42,8 +42,8 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Article Writer Control Center", response.text)
         self.assertIn("Run ingest", response.text)
-        self.assertIn("Beginner model guide", response.text)
-        self.assertIn("Embedding model", response.text)
+        self.assertIn("Simple setup guide", response.text)
+        self.assertIn("Search profile", response.text)
 
     def test_models_endpoint_lists_names(self):
         fake_settings = SimpleNamespace(
@@ -539,6 +539,39 @@ class ServerTests(unittest.TestCase):
         self.assertIn("Query engine and retrieval stack are still loading", output)
         self.assertIn("Connecting to the Ollama chat model...", output)
         self.assertIn("Synthesis query completed. Rendering final report...", output)
+
+    def test_synthesis_falls_back_to_direct_query_when_map_reduce_returns_empty_response(self):
+        captured_output = StringIO()
+        fake_settings = SimpleNamespace(
+            ollama_chat_model="qwen-synth",
+            ollama_base_url="http://ollama",
+            synthesis_fallback_model="qwen3:8b",
+            create_ollama_client=lambda timeout=None: SimpleNamespace(),
+            create_ollama_async_client=lambda timeout=None: SimpleNamespace(),
+        )
+        base_engine = SimpleNamespace(query=lambda broad_query: f"direct report for {broad_query}")
+
+        class FakeMapReduceEngine:
+            def query(self, broad_query):
+                return "Empty Response"
+
+        with (
+            patch.object(synthesis.RuntimeSettings, "from_env", return_value=fake_settings),
+            patch.object(synthesis, "get_engine", return_value=base_engine),
+            patch.object(synthesis, "Ollama", return_value=SimpleNamespace()),
+            patch.object(synthesis, "_build_sub_question_engine", return_value=FakeMapReduceEngine()),
+            patch("sys.stdout", captured_output),
+        ):
+            result = synthesis.run_global_literature_review(
+                "future consciousness",
+                status_interval_seconds=0,
+            )
+
+        self.assertEqual(result, "direct report for future consciousness")
+        self.assertIn(
+            "Sub-question synthesis returned no final answer. Falling back to a direct grounded corpus response...",
+            captured_output.getvalue(),
+        )
 
     def test_concurrent_tasks_run_one_at_a_time(self):
         first_ready = threading.Event()

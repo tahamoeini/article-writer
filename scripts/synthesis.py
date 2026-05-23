@@ -24,6 +24,36 @@ def _is_ollama_memory_error(exc: BaseException) -> bool:
     return isinstance(exc, ResponseError) and "requires more system memory" in str(exc).lower()
 
 
+def _has_meaningful_response(result: object) -> bool:
+    if result is None:
+        return False
+
+    normalized = str(result).strip()
+    if not normalized:
+        return False
+
+    return normalized.lower() != "empty response"
+
+
+def _query_with_direct_fallback(query_engine, direct_engine, broad_query: str):
+    result = query_engine.query(broad_query)
+    if _has_meaningful_response(result):
+        return result
+
+    print(
+        "Sub-question synthesis returned no final answer. "
+        "Falling back to a direct grounded corpus response..."
+    )
+    direct_result = direct_engine.query(broad_query)
+    if _has_meaningful_response(direct_result):
+        return direct_result
+
+    raise RuntimeError(
+        "The synthesis workflow completed, but the model returned an empty answer. "
+        "Try a more specific question, enable verbose logs, or use a stronger chat model."
+    )
+
+
 def _build_sub_question_engine(base_engine, llm: Ollama, verbose: bool):
     corpus_tool = QueryEngineTool(
         query_engine=base_engine,
@@ -137,7 +167,11 @@ def run_global_literature_review(
 
     try:
         try:
-            final_analysis = map_reduce_engine.query(broad_query)
+            final_analysis = _query_with_direct_fallback(
+                map_reduce_engine,
+                base_engine,
+                broad_query,
+            )
         except ResponseError as exc:
             if not _is_ollama_memory_error(exc):
                 raise
@@ -162,7 +196,11 @@ def run_global_literature_review(
                 async_client=settings.create_ollama_async_client(timeout=600.0),
             )
             fallback_engine = _build_sub_question_engine(base_engine, fallback_llm, verbose)
-            final_analysis = fallback_engine.query(broad_query)
+            final_analysis = _query_with_direct_fallback(
+                fallback_engine,
+                base_engine,
+                broad_query,
+            )
     finally:
         heartbeat_stop.set()
         if heartbeat_thread is not None:

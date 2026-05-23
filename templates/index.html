@@ -28,19 +28,19 @@
           <button id="models-button" type="button">Load Ollama models</button>
         </div>
         <div class="guide-card" aria-label="Model selection guide">
-          <h3>Beginner model guide</h3>
+          <h3>Simple setup guide</h3>
           <div class="guide-grid">
             <p>
-              <strong>Chat model</strong> writes answers, chat replies, and synthesis reports.
-              Larger models usually reason better but respond more slowly.
+              <strong>Writing model</strong> writes answers, chat replies, and synthesis reports.
+              Larger models may sound smarter, but they usually run slower and need more memory.
             </p>
             <p>
-              <strong>Embedding model</strong> builds and searches the index. If you change it,
-              rebuild the index so stored vectors match the selected model.
+              <strong>Search model</strong> builds and searches the index. If you change it,
+              rebuild the index so stored vectors still match the selected model.
             </p>
             <p>
-              <strong>Retrieval options</strong> control semantic, keyword, and final combined
-              matches. Basic users should keep the defaults unless tuning quality.
+              <strong>Search profile</strong> changes speed, memory use, and how deeply the corpus is searched.
+              Most people should start with Balanced and only open Advanced settings if needed.
             </p>
           </div>
           <p class="guide-note">
@@ -48,88 +48,114 @@
             <code>ollama pull nomic-embed-text</code>.
           </p>
         </div>
-        <div class="settings-grid">
+
+        <div class="preset-card">
           <label>
-            Ollama base URL
+            Search profile
+            <select id="runtime-preset">
+              <option value="balanced">Balanced</option>
+              <option value="fast">Faster and lighter</option>
+              <option value="deep">Deeper search</option>
+              <option value="custom">Custom</option>
+            </select>
+            <small>Presets change the important background options for you.</small>
+          </label>
+          <p id="runtime-preset-summary" class="preset-summary"></p>
+        </div>
+
+        <div class="settings-grid settings-grid-simple">
+          <label>
+            AI server address
             <input id="ollama-base-url" value="{{ defaults.ollama_base_url }}" />
+            <small>This is usually the default local Ollama address.</small>
           </label>
           <label>
-            Qdrant host
-            <input id="qdrant-host" value="{{ defaults.qdrant_host }}" />
-          </label>
-          <label>
-            Qdrant port
-            <input id="qdrant-port" value="{{ defaults.qdrant_port }}" />
-          </label>
-          <label>
-            Collection name
-            <input id="collection-name" value="{{ defaults.collection_name }}" />
-          </label>
-          <label>
-            GROBID URL
-            <input id="grobid-url" value="{{ defaults.grobid_base_url }}" />
-          </label>
-          <label>
-            Chunk sizes
-            <input id="chunk-sizes" value="{{ defaults.chunk_sizes }}" />
-            <small>Advanced indexing sizes for parent, middle, and leaf chunks.</small>
-          </label>
-          <label>
-            Vector top-k
-            <input id="vector-top-k" value="{{ defaults.vector_top_k }}" />
-            <small>Semantic matches from Qdrant. Keep the default to start.</small>
-          </label>
-          <label>
-            BM25 top-k
-            <input id="bm25-top-k" value="{{ defaults.bm25_top_k }}" />
-            <small>Keyword matches from the local text index. Keep the default to start.</small>
-          </label>
-          <label>
-            Fused top-k
-            <input id="fused-top-k" value="{{ defaults.fused_top_k }}" />
-            <small>Final combined matches passed to the answer model.</small>
-          </label>
-          <label>
-            Fusion query count
-            <input id="fusion-num-queries" type="number" min="1" max="4" value="{{ defaults.fusion_num_queries }}" />
-            <small>Lower values are faster and lighter. Use 1 for speed-first behavior.</small>
-          </label>
-          <label>
-            Enable BM25
-            <select id="enable-bm25">
-              <option value="1" {% if defaults.enable_bm25 %}selected{% endif %}>On</option>
-              <option value="0" {% if not defaults.enable_bm25 %}selected{% endif %}>Off</option>
-            </select>
-            <small>Turn off for a faster, lower-memory vector-only retrieval path.</small>
-          </label>
-          <label>
-            Enable auto-merge
-            <select id="enable-auto-merge">
-              <option value="1" {% if defaults.enable_auto_merge %}selected{% endif %}>On</option>
-              <option value="0" {% if not defaults.enable_auto_merge %}selected{% endif %}>Off</option>
-            </select>
-            <small>Useful for quality on complex hierarchies, but costs extra memory.</small>
-          </label>
-          <label>
-            Synthesis fallback model
-            <input id="synthesis-fallback-model" value="{{ defaults.synthesis_fallback_model }}" />
-            <small>Used automatically when synthesis fails due to model memory requirements.</small>
-          </label>
-          <label>
-            Chat model
+            Writing model
             <select id="chat-model">
               <option value="{{ defaults.ollama_chat_model }}">{{ defaults.ollama_chat_model }}</option>
             </select>
-            <small>Used for chat, corpus answers, and synthesis writing.</small>
+            <small>Used for chat, grounded answers, and long synthesis reports.</small>
           </label>
           <label>
-            Embedding model
+            Search model
             <select id="embed-model">
               <option value="{{ defaults.ollama_embed_model }}">{{ defaults.ollama_embed_model }}</option>
             </select>
-            <small>Must match the model used when the index was built.</small>
+            <small>Used to build and search the index. Rebuild the index after changing it.</small>
+          </label>
+          <label>
+            Backup model for long synthesis
+            <input id="synthesis-fallback-model" value="{{ defaults.synthesis_fallback_model }}" />
+            <small>Used automatically if the main writing model is too large for available memory.</small>
           </label>
         </div>
+
+        <details class="advanced-settings">
+          <summary>Advanced settings for power users</summary>
+          <p class="advanced-note">
+            These controls are still available, but the preset above is usually enough for everyday use.
+          </p>
+          <div class="settings-grid">
+            <label>
+              Search database host
+              <input id="qdrant-host" value="{{ defaults.qdrant_host }}" />
+            </label>
+            <label>
+              Search database port
+              <input id="qdrant-port" value="{{ defaults.qdrant_port }}" />
+            </label>
+            <label>
+              Corpus collection name
+              <input id="collection-name" value="{{ defaults.collection_name }}" />
+            </label>
+            <label>
+              PDF metadata service address
+              <input id="grobid-url" value="{{ defaults.grobid_base_url }}" />
+            </label>
+            <label>
+              Meaning matches to check
+              <input id="vector-top-k" value="{{ defaults.vector_top_k }}" />
+              <small>How many semantic matches to inspect from the vector index.</small>
+            </label>
+            <label>
+              Keyword matches to check
+              <input id="bm25-top-k" value="{{ defaults.bm25_top_k }}" />
+              <small>How many classic keyword matches to inspect.</small>
+            </label>
+            <label>
+              Final passages to use
+              <input id="fused-top-k" value="{{ defaults.fused_top_k }}" />
+              <small>How many passages are finally sent to the writing model.</small>
+            </label>
+            <label>
+              Extra search rewrites
+              <input id="fusion-num-queries" type="number" min="1" max="4" value="{{ defaults.fusion_num_queries }}" />
+              <small>Higher values search more deeply, but are slower and heavier.</small>
+            </label>
+            <label>
+              Include keyword search
+              <select id="enable-bm25">
+                <option value="1" {% if defaults.enable_bm25 %}selected{% endif %}>Yes</option>
+                <option value="0" {% if not defaults.enable_bm25 %}selected{% endif %}>No</option>
+              </select>
+              <small>Turn this off for a faster, lighter vector-only search path.</small>
+            </label>
+            <label>
+              Merge nearby passages
+              <select id="enable-auto-merge">
+                <option value="1" {% if defaults.enable_auto_merge %}selected{% endif %}>Yes</option>
+                <option value="0" {% if not defaults.enable_auto_merge %}selected{% endif %}>No</option>
+              </select>
+              <small>Can improve long answers, but costs more memory.</small>
+            </label>
+            <label>
+              Index chunk sizes
+              <input id="chunk-sizes" value="{{ defaults.chunk_sizes }}" />
+              <small>Advanced indexing sizes for large, medium, and small chunks.</small>
+            </label>
+          </label>
+          </div>
+        </details>
       </section>
 
       <section class="two-column">
