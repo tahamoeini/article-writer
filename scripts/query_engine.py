@@ -1,4 +1,5 @@
 import json
+import os
 from functools import lru_cache
 from typing import Any, Mapping
 
@@ -26,6 +27,13 @@ If the context is insufficient, reply exactly: The retrieved corpus does not con
 Every substantive claim must include an inline citation in this format: [Author, Year, \"Title\", p. X, para. Y]
 Prefer concise synthesis over speculation.
 """
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class CitationAwareQueryEngine:
@@ -121,7 +129,7 @@ def _cache_key(settings_overrides: Mapping[str, Any] | None = None) -> tuple[tup
     )
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=1)
 def _get_cached_query_engine(cache_key: tuple[tuple[str, str], ...]) -> CitationAwareQueryEngine:
     overrides = dict(cache_key)
     return get_advanced_query_engine(settings_overrides=overrides or None)
@@ -139,7 +147,13 @@ def get_advanced_query_engine(
     settings_overrides: Mapping[str, str] | None = None,
 ) -> CitationAwareQueryEngine:
     settings = RuntimeSettings.from_env(settings_overrides)
-    docstore = load_docstore(settings)
+    use_bm25 = _env_flag("ENABLE_BM25", True)
+    use_auto_merge = _env_flag("ENABLE_AUTO_MERGE", False)
+
+    docstore: SimpleDocumentStore | None = None
+    if use_auto_merge or (use_bm25 and not settings.bm25_index_path.is_dir()):
+        docstore = load_docstore(settings)
+
     client = settings.create_qdrant_client()
     if not client.collection_exists(settings.collection_name):
         raise FileNotFoundError(
@@ -162,24 +176,31 @@ def get_advanced_query_engine(
 
     index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
     vector_retriever = index.as_retriever(similarity_top_k=settings.vector_top_k)
-    bm25_retriever = load_bm25_retriever(settings, docstore)
+    retriever = vector_retriever
 
-    fusion_retriever = QueryFusionRetriever(
-        retrievers=[vector_retriever, bm25_retriever],
-        llm=llm,
-        similarity_top_k=settings.fused_top_k,
-        num_queries=2,
-        mode="reciprocal_rerank",
-        use_async=True,
-        verbose=False,
-    )
+    if use_bm25:
+        if docstore is None:
+            docstore = load_docstore(settings)
+        bm25_retriever = load_bm25_retriever(settings, docstore)
+        retriever = QueryFusionRetriever(
+            retrievers=[vector_retriever, bm25_retriever],
+            llm=llm,
+            similarity_top_k=settings.fused_top_k,
+            num_queries=2,
+            mode="reciprocal_rerank",
+            use_async=True,
+            verbose=False,
+        )
 
-    storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
-    auto_merge_retriever = AutoMergingRetriever(
-        fusion_retriever,
-        storage_context=storage_context,
-        simple_ratio_thresh=0.4,
-    )
+    if use_auto_merge:
+        if docstore is None:
+            docstore = load_docstore(settings)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store, docstore=docstore)
+        retriever = AutoMergingRetriever(
+            retriever,
+            storage_context=storage_context,
+            simple_ratio_thresh=0.4,
+        )
 
     synthesizer = get_response_synthesizer(
         llm=llm,
@@ -187,7 +208,7 @@ def get_advanced_query_engine(
         use_async=True,
     )
     query_engine = RetrieverQueryEngine(
-        retriever=auto_merge_retriever,
+        retriever=retriever,
         response_synthesizer=synthesizer,
     )
     return CitationAwareQueryEngine(query_engine)

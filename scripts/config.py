@@ -80,7 +80,7 @@ class RuntimeSettings:
             qdrant_timeout=float(_get_setting(overrides, "QDRANT_TIMEOUT", "30")),
             ollama_base_url=_clean_url(_get_setting(overrides, "OLLAMA_BASE_URL", "http://127.0.0.1:11434")),
             ollama_embed_model=_get_setting(overrides, "OLLAMA_EMBED_MODEL", "nomic-embed-text"),
-            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "qwen2.5:7b"),
+            ollama_chat_model=_get_setting(overrides, "OLLAMA_CHAT_MODEL", "gpt-oss:20b"),
             grobid_base_url=_clean_url(_get_setting(overrides, "GROBID_URL", "http://127.0.0.1:8070")),
             ingest_batch_size=_parse_positive_int(
                 _get_setting(overrides, "INGEST_BATCH_SIZE", "50"),
