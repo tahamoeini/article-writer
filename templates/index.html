@@ -153,7 +153,19 @@
               <input id="chunk-sizes" value="{{ defaults.chunk_sizes }}" />
               <small>Advanced indexing sizes for large, medium, and small chunks.</small>
             </label>
-          </label>
+            <label>
+              Skip duplicate documents
+              <select id="enable-document-dedup">
+                <option value="1" {% if defaults.enable_document_dedup %}selected{% endif %}>Yes</option>
+                <option value="0" {% if not defaults.enable_document_dedup %}selected{% endif %}>No</option>
+              </select>
+              <small>Filters near-duplicate processed files before indexing to avoid inflated retrieval results.</small>
+            </label>
+            <label>
+              Duplicate similarity threshold
+              <input id="document-dedup-threshold" type="number" min="0.5" max="1.0" step="0.01" value="{{ defaults.document_dedup_threshold }}" />
+              <small>How similar two documents must be (0.5–1.0) to treat one as a duplicate. Default 0.93.</small>
+            </label>
           </div>
         </details>
       </section>

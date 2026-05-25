@@ -1,7 +1,9 @@
 import argparse
 import concurrent.futures
 import json
+import re
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 from typing import Mapping
@@ -31,6 +33,17 @@ INDEX_PROGRESS_PHASES = [
     ("Embed and write vectors", 50),
     ("Persist manifests", 5),
 ]
+DEDUP_TOKEN_PATTERN = re.compile(r"[a-z0-9]{4,}")
+
+
+@dataclass(frozen=True)
+class ProcessedFileProfile:
+    path: Path
+    title: str
+    author: str
+    year: str
+    normalized_text: str
+    token_fingerprint: frozenset[str]
 
 
 def print_overall_progress(done_percent: int, message: str) -> None:
@@ -113,6 +126,111 @@ def load_batch_documents(
     for document_group in document_groups:
         documents.extend(document_group)
     return documents
+
+
+def normalize_dedup_value(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+
+def tokenize_for_dedup(text: str) -> frozenset[str]:
+    return frozenset(DEDUP_TOKEN_PATTERN.findall(text))
+
+
+def profile_processed_file(json_file: Path) -> ProcessedFileProfile:
+    paragraphs = load_paragraphs(json_file)
+    normalized_blocks: list[str] = []
+    metadata: dict[str, object] = {}
+
+    for paragraph in paragraphs:
+        normalized_text = normalize_dedup_value(paragraph.get("text", ""))
+        if normalized_text:
+            normalized_blocks.append(normalized_text)
+        if not metadata:
+            metadata = dict(paragraph.get("metadata") or {})
+
+    combined_text = " ".join(normalized_blocks)
+    title = normalize_dedup_value(metadata.get("title") or json_file.stem)
+    author = normalize_dedup_value(metadata.get("author"))
+    year = normalize_dedup_value(metadata.get("year"))
+    return ProcessedFileProfile(
+        path=json_file,
+        title=title,
+        author=author,
+        year=year,
+        normalized_text=combined_text,
+        token_fingerprint=tokenize_for_dedup(combined_text),
+    )
+
+
+def _metadata_compatible(left: str, right: str) -> bool:
+    unknown_values = {"", "unknown"}
+    return left in unknown_values or right in unknown_values or left == right
+
+
+def token_jaccard_similarity(left: frozenset[str], right: frozenset[str]) -> float:
+    if not left or not right:
+        return 0.0
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
+
+
+def compare_processed_file_profiles(
+    candidate: ProcessedFileProfile,
+    retained: ProcessedFileProfile,
+    threshold: float,
+) -> tuple[bool, float]:
+    if candidate.normalized_text and candidate.normalized_text == retained.normalized_text:
+        return True, 1.0
+
+    if candidate.title != retained.title:
+        return False, 0.0
+    if not _metadata_compatible(candidate.author, retained.author):
+        return False, 0.0
+    if not _metadata_compatible(candidate.year, retained.year):
+        return False, 0.0
+
+    similarity = token_jaccard_similarity(candidate.token_fingerprint, retained.token_fingerprint)
+    return similarity >= threshold, similarity
+
+
+def deduplicate_processed_files(
+    processed_files: list[Path],
+    settings: RuntimeSettings,
+) -> tuple[list[Path], list[tuple[Path, Path, float]]]:
+    if not getattr(settings, "enable_document_dedup", True):
+        return processed_files, []
+
+    threshold = float(getattr(settings, "document_dedup_threshold", 0.93))
+    retained_by_title: dict[str, list[ProcessedFileProfile]] = {}
+    retained_files: list[Path] = []
+    dropped_files: list[tuple[Path, Path, float]] = []
+
+    for json_file in processed_files:
+        profile = profile_processed_file(json_file)
+        candidate_matches = retained_by_title.get(profile.title, [])
+        duplicate_match: tuple[Path, float] | None = None
+
+        for retained_profile in candidate_matches:
+            is_duplicate, similarity = compare_processed_file_profiles(
+                profile,
+                retained_profile,
+                threshold,
+            )
+            if is_duplicate:
+                duplicate_match = (retained_profile.path, similarity)
+                break
+
+        if duplicate_match is not None:
+            retained_path, similarity = duplicate_match
+            dropped_files.append((json_file, retained_path, similarity))
+            continue
+
+        retained_files.append(json_file)
+        retained_by_title.setdefault(profile.title, []).append(profile)
+
+    return retained_files, dropped_files
 
 
 def resolve_chunk_sizes(settings: RuntimeSettings, documents: list[Document]) -> list[int]:
@@ -279,6 +397,26 @@ def build_hierarchical_index(
     if not processed_files:
         raise FileNotFoundError(
             f"No processed JSON files found in {settings.processed_dir}. Run scripts/ingest.py first."
+        )
+
+    processed_files, duplicate_files = deduplicate_processed_files(processed_files, settings)
+    if duplicate_files:
+        print(
+            "Document deduplication removed "
+            f"{len(duplicate_files)} near-duplicate processed file(s) before indexing."
+        )
+        for duplicate_path, retained_path, similarity in duplicate_files[:20]:
+            print(
+                "Skipping duplicate candidate: "
+                f"{duplicate_path.name} -> {retained_path.name} "
+                f"(similarity={similarity:.2f})"
+            )
+        if len(duplicate_files) > 20:
+            print(f"... {len(duplicate_files) - 20} more duplicate file(s) omitted from log.")
+
+    if not processed_files:
+        raise ValueError(
+            f"Processed files exist in {settings.processed_dir}, but all were filtered as duplicates."
         )
 
     batch_size = settings.ingest_batch_size

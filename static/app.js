@@ -78,6 +78,8 @@ function currentSettings() {
     FUSION_NUM_QUERIES: document.getElementById("fusion-num-queries").value.trim(),
     ENABLE_BM25: document.getElementById("enable-bm25").value,
     ENABLE_AUTO_MERGE: document.getElementById("enable-auto-merge").value,
+    ENABLE_DOCUMENT_DEDUP: document.getElementById("enable-document-dedup").value,
+    DOCUMENT_DEDUP_THRESHOLD: document.getElementById("document-dedup-threshold").value.trim(),
     OLLAMA_SYNTHESIS_FALLBACK_MODEL: document.getElementById("synthesis-fallback-model").value.trim(),
   };
 }

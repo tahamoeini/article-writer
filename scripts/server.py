@@ -412,6 +412,8 @@ def _settings_defaults() -> dict[str, Any]:
         "enable_bm25": settings.enable_bm25,
         "enable_auto_merge": settings.enable_auto_merge,
         "fusion_num_queries": settings.fusion_num_queries,
+        "enable_document_dedup": settings.enable_document_dedup,
+        "document_dedup_threshold": settings.document_dedup_threshold,
         "synthesis_fallback_model": settings.synthesis_fallback_model,
     }
 

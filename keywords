@@ -1,3 +1,10 @@
+## How to use these search banks in this repository
+
+1. Run each model section as its own acquisition stream first. The goal of the first pass is stream-level saturation, not immediate cross-stream precision.
+2. Add the cross-model combinations only after the stream-specific searches stop yielding many new relevant papers. Those combinations are best used for boundary-spanning expansion.
+3. Intersectional CRQ-style queries should be used after the base corpus is already populated, then tested through the indexed corpus with hybrid retrieval and synthesis.
+4. The indexing pipeline now filters near-duplicate processed files before chunking, so duplicate PDF versions are less likely to dominate retrieval.
+
 ## 1) Model 1 search bank
 
 **Core stream:** future consciousness → strategic foresight → digital bricolage → venture creation under institutional voids.

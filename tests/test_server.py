@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import unittest
@@ -73,6 +74,8 @@ class ServerTests(unittest.TestCase):
             enable_bm25=True,
             enable_auto_merge=False,
             fusion_num_queries=1,
+            enable_document_dedup=True,
+            document_dedup_threshold=0.93,
             synthesis_fallback_model="qwen3:8b",
         )
         with patch.object(server.RuntimeSettings, "from_env", return_value=fake_settings):
@@ -96,6 +99,8 @@ class ServerTests(unittest.TestCase):
                 "enable_bm25": True,
                 "enable_auto_merge": False,
                 "fusion_num_queries": 1,
+                "enable_document_dedup": True,
+                "document_dedup_threshold": 0.93,
                 "synthesis_fallback_model": "qwen3:8b",
             },
         )
@@ -275,6 +280,23 @@ class ServerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "INGEST_BATCH_SIZE must be greater than or equal to 1"):
             server.RuntimeSettings.from_env({"INGEST_BATCH_SIZE": "0"})
 
+    def test_runtime_settings_reject_out_of_range_dedup_threshold(self):
+        with self.assertRaisesRegex(ValueError, "DOCUMENT_DEDUP_THRESHOLD must be between"):
+            server.RuntimeSettings.from_env({"DOCUMENT_DEDUP_THRESHOLD": "0.3"})
+        with self.assertRaisesRegex(ValueError, "DOCUMENT_DEDUP_THRESHOLD must be between"):
+            server.RuntimeSettings.from_env({"DOCUMENT_DEDUP_THRESHOLD": "1.1"})
+
+    def test_runtime_settings_parse_document_dedup_controls(self):
+        settings = server.RuntimeSettings.from_env(
+            {
+                "ENABLE_DOCUMENT_DEDUP": "0",
+                "DOCUMENT_DEDUP_THRESHOLD": "0.95",
+            }
+        )
+
+        self.assertFalse(settings.enable_document_dedup)
+        self.assertAlmostEqual(settings.document_dedup_threshold, 0.95)
+
     def test_build_index_rejects_non_positive_batch_size(self):
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -306,6 +328,73 @@ class ServerTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(ValueError, "INGEST_BATCH_SIZE must be greater than or equal to 1"):
                     build_index.build_hierarchical_index()
+
+    def test_deduplicate_processed_files_skips_duplicate_versions(self):
+        with TemporaryDirectory() as tmp:
+            processed_dir = Path(tmp)
+            primary_file = processed_dir / "alpha.json"
+            duplicate_file = processed_dir / "alpha-copy.json"
+            unique_file = processed_dir / "beta.json"
+
+            primary_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "alpha:1",
+                            "text": "Responsible AI improves platform governance through accountability and transparency.",
+                            "metadata": {
+                                "title": "Responsible AI Governance",
+                                "author": "A. Researcher",
+                                "year": "2025",
+                            },
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            duplicate_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "alpha-copy:1",
+                            "text": "Responsible AI improves platform governance through accountability and transparency.",
+                            "metadata": {
+                                "title": "Responsible AI Governance",
+                                "author": "A. Researcher",
+                                "year": "2025",
+                            },
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            unique_file.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "beta:1",
+                            "text": "Entrepreneurial cognition shapes strategic adaptation under policy uncertainty.",
+                            "metadata": {
+                                "title": "Entrepreneurial Cognition and Adaptation",
+                                "author": "B. Researcher",
+                                "year": "2024",
+                            },
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            retained_files, dropped_files = build_index.deduplicate_processed_files(
+                sorted(processed_dir.glob("*.json")),
+                SimpleNamespace(enable_document_dedup=True, document_dedup_threshold=0.93),
+            )
+
+        self.assertEqual([path.name for path in retained_files], ["alpha-copy.json", "beta.json"])
+        self.assertEqual(len(dropped_files), 1)
+        self.assertEqual(dropped_files[0][0].name, "alpha.json")
+        self.assertEqual(dropped_files[0][1].name, "alpha-copy.json")
+        self.assertAlmostEqual(dropped_files[0][2], 1.0)
 
     def test_load_bm25_retriever_applies_current_top_k_to_persisted_index(self):
         with TemporaryDirectory() as tmp:

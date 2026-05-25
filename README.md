@@ -65,6 +65,8 @@ The scripts read their settings from environment variables, with these defaults:
 - ENABLE_BM25: 1
 - ENABLE_AUTO_MERGE: 0
 - FUSION_NUM_QUERIES: 1
+- ENABLE_DOCUMENT_DEDUP: 1
+- DOCUMENT_DEDUP_THRESHOLD: 0.93
 - OLLAMA_SYNTHESIS_FALLBACK_MODEL: qwen3:8b
 - INGEST_BATCH_SIZE: 50
 
@@ -90,7 +92,22 @@ Make sure the selected Ollama models are installed locally before using them:
     ollama pull nomic-embed-text
     ollama pull gpt-oss:20b
 
+## Corpus Construction Guidance
+
+The search and indexing advice for this repository should follow the way this pipeline is actually built.
+
+- Start with stream-specific Boolean strings from the root-level keywords file. Each model section is best treated as its own acquisition stream so you can build recall and watch for saturation before mixing constructs.
+- Use the cross-model combinations in keywords only after the stream-specific corpora are reasonably saturated. They are better as boundary-spanning expansion queries than as the first pass, because they trade recall for precision.
+- This project is paragraph-first: ingest.py extracts paragraph blocks, then build_index.py applies hierarchical node parsing on top of those paragraph records. Because of that, generic flat chunking advice such as "400 tokens with 20% overlap" is not the right default here. Keep the existing hierarchical CHUNK_SIZES baseline unless retrieval is clearly too fragmented.
+- BM25 plus dense retrieval is already the default query path in query_engine.py. That matches multi-construct and cross-stream questions well, so it should stay enabled for literature review style queries.
+- Pre-index duplicate filtering now runs at the processed-file level before batching and chunking. It is controlled by ENABLE_DOCUMENT_DEDUP and DOCUMENT_DEDUP_THRESHOLD so duplicate PDF versions do not inflate retrieval results.
+- Intersectional or CRQ-style questions should be used after stream-specific collection stabilizes. In this repo, that usually means running them through synthesis.py or the research query API once each stream has enough indexed evidence to support grounded cross-cluster retrieval.
+
 ## Recommended Workflow
+
+### 0. Build stream-specific search sets
+
+Use the search-bank file at the repository root to collect PDFs by stream first. Add cross-model or CRQ-style combinations only after each stream begins to saturate.
 
 ### 1. Add PDFs
 
@@ -129,6 +146,7 @@ If you want to delete and recreate the Qdrant collection first:
 This step:
 
 - loads corpus/processed/*.json
+- filters near-duplicate processed files before indexing
 - parses hierarchical nodes
 - stores vectors in Qdrant
 - writes the local docstore to index_storage/docstore.json

@@ -37,6 +37,21 @@ def _parse_bounded_int(
     return value
 
 
+def _parse_bounded_float(
+    raw_value: str,
+    setting_name: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    value = float(raw_value)
+    if value < minimum or value > maximum:
+        raise ValueError(
+            f"{setting_name} must be between {minimum} and {maximum}, inclusive."
+        )
+    return value
+
+
 def _parse_bool(raw_value: str, setting_name: str) -> bool:
     normalized = raw_value.strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
@@ -82,6 +97,8 @@ class RuntimeSettings:
     enable_bm25: bool
     enable_auto_merge: bool
     fusion_num_queries: int
+    enable_document_dedup: bool
+    document_dedup_threshold: float
     synthesis_fallback_model: str
 
     @property
@@ -133,6 +150,16 @@ class RuntimeSettings:
                 "FUSION_NUM_QUERIES",
                 minimum=1,
                 maximum=4,
+            ),
+            enable_document_dedup=_parse_bool(
+                _get_setting(overrides, "ENABLE_DOCUMENT_DEDUP", "1"),
+                "ENABLE_DOCUMENT_DEDUP",
+            ),
+            document_dedup_threshold=_parse_bounded_float(
+                _get_setting(overrides, "DOCUMENT_DEDUP_THRESHOLD", "0.93"),
+                "DOCUMENT_DEDUP_THRESHOLD",
+                minimum=0.5,
+                maximum=1.0,
             ),
             synthesis_fallback_model=(
                 _get_setting(overrides, "OLLAMA_SYNTHESIS_FALLBACK_MODEL", "qwen3:8b").strip()
