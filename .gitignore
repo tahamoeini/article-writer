@@ -1,10 +1,19 @@
-**/*.pdf
-**/*.csv
-**/*.xlsx
-**/*.xls
-lists
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.venv/
+
+# Large/raw source files and generated index artifacts
 corpus/*
-ai-responses/
-anythingllm.docker
-**/__pycache__/*
+!corpus/pdfs/
+!corpus/processed/
+corpus/pdfs/*
+corpus/processed/*
 index_storage/*
+ai-responses/
+
+# Keep directory placeholders tracked
+!corpus/pdfs/.gitkeep
+!corpus/processed/.gitkeep
+!index_storage/.gitkeep
