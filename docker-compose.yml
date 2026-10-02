@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   grobid:
-    image: lfoppiano/grobid:0.9.0-crf
+    image: grobid/grobid:0.9.0-crf
     container_name: local_grobid
     ports:
       - "8070:8070"
